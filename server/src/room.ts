@@ -28,6 +28,13 @@ export interface TalkJob {
   stale: boolean;
 }
 
+export interface QueuedUtterance {
+  job: TalkJob;
+  buf: Buffer;
+  mime: string;
+  sourceLang: Language;
+}
+
 export class Room {
   readonly code: string;
   mode: Mode = "chat";
@@ -36,7 +43,7 @@ export class Room {
   phase: FloorPhase = "idle";
   floorGen = 0;
   activeJob: TalkJob | null = null;
-  queuedJobs: TalkJob[] = [];
+  queued: QueuedUtterance[] = [];
   transcript: TranscriptItem[] = [];
   seats: Seat[] = [];
 
@@ -162,7 +169,7 @@ export function removeSeat(room: Room, clientId: string): void {
     room.floorHolderId = null;
     room.phase = "idle";
     room.activeJob = null;
-    room.queuedJobs = [];
+    room.queued = [];
   }
   dropRoomIfEmpty(room);
 }

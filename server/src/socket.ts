@@ -15,6 +15,7 @@ import {
   type Seat,
 } from "./room.ts";
 import { groqCode, transcribeAudio, translateText } from "./groq.ts";
+import { enqueueOrRun, handleBargeBegin, onPlayEnded } from "./talk.ts";
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type Sock = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -181,7 +182,7 @@ export function attachSockets(io: IO): void {
       ctx.room.phase = "idle";
       ctx.room.floorHolderId = null;
       ctx.room.activeJob = null;
-      ctx.room.queuedJobs = [];
+      ctx.room.queued = [];
       for (const s of ctx.room.seats) {
         s.micEnabled = false;
         s.speaking = false;
@@ -203,6 +204,35 @@ export function attachSockets(io: IO): void {
       if (!ctx || ctx.room.mode !== "talk") return;
       ctx.seat.speaking = speaking;
       broadcastState(io, ctx.room);
+    });
+
+    socket.on("talk:barge_begin", () => {
+      const ctx = context(socket);
+      if (!ctx) return;
+      handleBargeBegin(io, ctx.room, ctx.seat);
+    });
+
+    socket.on("talk:utterance", ({ jobId, mime, audio }) => {
+      const ctx = context(socket);
+      if (!ctx) return;
+      if (ctx.room.mode !== "talk") {
+        socket.emit("talk:rejected", { reason: "not_talk" });
+        return;
+      }
+      enqueueOrRun(
+        io,
+        ctx.room,
+        ctx.seat,
+        jobId,
+        mime,
+        bufferFrom(audio),
+      );
+    });
+
+    socket.on("talk:play_ended", ({ jobId }) => {
+      const ctx = context(socket);
+      if (!ctx) return;
+      onPlayEnded(io, ctx.room, jobId);
     });
 
     socket.on("disconnect", () => {
