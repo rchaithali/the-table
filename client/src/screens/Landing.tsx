@@ -74,7 +74,7 @@ export function Landing({
           English ↔ हिन्दी
         </p>
         <h1 className="mt-4 max-w-xl font-display text-4xl leading-[1.1] font-medium tracking-tight sm:text-6xl">
-          Two seats. Two languages. One argument.
+          Two seats. Two languages. One conversation.
         </h1>
         <p className="mt-6 max-w-lg text-lg leading-relaxed text-ink/75">
           Sit across from someone you do not share a language with. Type, or
