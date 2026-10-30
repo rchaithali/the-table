@@ -20,6 +20,7 @@ If the first load hangs on Render’s free tier, wait about a minute — the ser
 cp .env.example .env
 # set GROQ_API_KEY
 npm install
+npm test
 npm run dev
 ```
 
@@ -32,9 +33,14 @@ Node 20+. Chrome for Talk recording.
 
 Not a static site. One web service:
 
-- Build: `npm ci && npm run build`
+- Build: `npm ci --include=dev && npm run build`
 - Start: `npm start`
-- Env: `GROQ_API_KEY`, `GROQ_TRANSLATE_MODEL` (default `openai/gpt-oss-20b`), `GROQ_WHISPER_MODEL` (`whisper-large-v3`)
+- Health check: `/health`
+- Env: `GROQ_API_KEY` (required), `GROQ_TRANSLATE_MODEL` (default `openai/gpt-oss-20b`), `GROQ_WHISPER_MODEL` (`whisper-large-v3`)
+
+Render injects `PORT`. The server binds to `0.0.0.0` and that port, then serves the built client from the same process. Leave `PORT` unset in the Render dashboard.
+
+`--include=dev` matters because Render installs with `NODE_ENV=production`, and Vite and TypeScript are dev dependencies needed only for the build. A blueprint is in `render.yaml`.
 
 Free instances sleep after 15 minutes idle.
 

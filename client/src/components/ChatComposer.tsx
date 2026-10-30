@@ -1,19 +1,26 @@
-import { useRef, useState } from "react";
-import { blobToBuffer, recordUntilStop } from "../audio/dictate";
+import { useEffect, useRef, useState } from "react";
+import { blobToBuffer, recordUntilStop, requestMicrophone } from "../audio/dictate";
 import { socket } from "../socket";
 
 export function ChatComposer({
   disabled,
   onSend,
+  onError,
 }: {
   disabled?: boolean;
   onSend: (text: string) => void;
+  onError?: (message: string) => void;
 }) {
   const [text, setText] = useState("");
   const [dictating, setDictating] = useState(false);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const detach = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => detach.current?.();
+  }, []);
 
   async function toggleDictate() {
     if (dictating) {
@@ -24,7 +31,7 @@ export function ChatComposer({
     const ac = new AbortController();
     abort.current = ac;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await requestMicrophone();
       streamRef.current = stream;
       const { blob, mime } = await recordUntilStop(stream, ac.signal);
       stopStream();
@@ -33,19 +40,41 @@ export function ChatComposer({
       setBusy(true);
       const requestId = crypto.randomUUID();
       const audio = await blobToBuffer(blob);
-      const onText = (payload: { requestId: string; text: string }) => {
-        if (payload.requestId !== requestId) return;
+      let timer = 0;
+      const finish = () => {
+        window.clearTimeout(timer);
         socket.off("chat:transcribed", onText);
-        setText((t) => (t ? `${t} ${payload.text}` : payload.text));
+        socket.off("room:error", onErr);
+        detach.current = null;
         setBusy(false);
       };
+      detach.current = finish;
+      const onText = (payload: { requestId: string; text: string }) => {
+        if (payload.requestId !== requestId) return;
+        finish();
+        setText((t) => (t ? `${t} ${payload.text}` : payload.text));
+      };
+      const onErr = (payload: { message: string }) => {
+        finish();
+        onError?.(payload.message);
+      };
+      timer = window.setTimeout(() => {
+        finish();
+        onError?.("Dictation timed out. Try again.");
+      }, 20000);
       socket.on("chat:transcribed", onText);
+      socket.on("room:error", onErr);
       socket.emit("chat:transcribe", { requestId, mime, audio });
     } catch (err) {
       stopStream();
       setDictating(false);
       setBusy(false);
-      console.error(err);
+      const denied = err instanceof DOMException && err.name === "NotAllowedError";
+      onError?.(
+        denied
+          ? "Microphone permission is required for dictation."
+          : "Could not use the microphone for dictation.",
+      );
     }
   }
 

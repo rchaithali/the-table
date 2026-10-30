@@ -163,14 +163,13 @@ export function markDisconnected(room: Room, socketId: string): Seat | undefined
 }
 
 export function removeSeat(room: Room, clientId: string): void {
+  if (room.activeJob) room.activeJob.stale = true;
   room.seats = room.seats.filter((s) => s.clientId !== clientId);
-  if (room.modeProposal?.fromId === clientId) room.modeProposal = null;
-  if (room.floorHolderId === clientId) {
-    room.floorHolderId = null;
-    room.phase = "idle";
-    room.activeJob = null;
-    room.queued = [];
-  }
+  room.modeProposal = null;
+  room.floorHolderId = null;
+  room.phase = "idle";
+  room.activeJob = null;
+  room.queued = [];
   dropRoomIfEmpty(room);
 }
 

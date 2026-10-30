@@ -1,14 +1,15 @@
-import type { Participant } from "@shared/types";
-import { LANGUAGES } from "@shared/types";
+import { LANGUAGES, type Language, type Participant } from "@shared/types";
 
 export function Seat({
   person,
   side,
   you,
+  onLanguage,
 }: {
   person: Participant | null;
   side: "far" | "near";
   you?: boolean;
+  onLanguage?: (language: Language) => void;
 }) {
   const accent = side === "far" ? "text-cool" : "text-warm";
   const lang = LANGUAGES.find((l) => l.id === person?.language);
@@ -21,7 +22,24 @@ export function Seat({
         {person?.name ?? "Empty seat"}
       </p>
       <p className="text-sm text-ink/60">
-        {lang ? `${lang.native}` : "Waiting"}
+        {you && onLanguage && person ? (
+          <select
+            aria-label="Your language"
+            className="rounded-sm border border-ink/15 bg-paper px-2 py-1"
+            value={person.language}
+            onChange={(e) => onLanguage(e.target.value as Language)}
+          >
+            {LANGUAGES.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.native}
+              </option>
+            ))}
+          </select>
+        ) : lang ? (
+          lang.native
+        ) : (
+          "Waiting"
+        )}
         {person?.typing ? " · writing" : ""}
         {person?.speaking ? " · speaking" : ""}
       </p>

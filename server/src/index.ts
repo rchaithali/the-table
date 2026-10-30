@@ -25,6 +25,10 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "the-table" });
 });
 
+app.get("/favicon.ico", (_req, res) => {
+  res.status(204).end();
+});
+
 const clientDist = path.resolve(__dirname, "../../client/dist");
 app.use(express.static(clientDist));
 app.get("/{*splat}", (req, res, next) => {
@@ -44,6 +48,10 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 
 attachSockets(io);
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`The Table listening on ${PORT}`);
-});
+if (process.env.THE_TABLE_TEST !== "1") {
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`The Table listening on ${PORT}`);
+  });
+}
+
+export { app, io, server };

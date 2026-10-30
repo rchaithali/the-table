@@ -1,3 +1,27 @@
+export function requestMicrophone(): Promise<MediaStream> {
+  const requested = navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true },
+  });
+  let settled = false;
+  const timeout = new Promise<MediaStream>((_, reject) => {
+    window.setTimeout(() => {
+      if (settled) return;
+      reject(new DOMException("Microphone permission timed out", "NotAllowedError"));
+    }, 15000);
+  });
+  return Promise.race([requested, timeout]).then(
+    (stream) => {
+      settled = true;
+      return stream;
+    },
+    (err: unknown) => {
+      settled = true;
+      void requested.then((late) => late.getTracks().forEach((track) => track.stop())).catch(() => {});
+      throw err;
+    },
+  );
+}
+
 export async function recordUntilStop(
   stream: MediaStream,
   signal: AbortSignal,

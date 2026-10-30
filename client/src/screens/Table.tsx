@@ -1,4 +1,4 @@
-import type { RoomState } from "@shared/types";
+import type { Language, RoomState } from "@shared/types";
 import { ChatComposer } from "../components/ChatComposer";
 import { Floor } from "../components/Floor";
 import { ModePrompt } from "../components/ModePrompt";
@@ -14,6 +14,8 @@ export function TableView({
   onPropose,
   onRespond,
   onMic,
+  onLanguage,
+  onError,
   captureReady,
 }: {
   state: RoomState;
@@ -22,6 +24,8 @@ export function TableView({
   onPropose: (mode: "chat" | "talk") => void;
   onRespond: (accept: boolean) => void;
   onMic: () => void;
+  onLanguage: (language: Language) => void;
+  onError: (message: string) => void;
   captureReady: boolean;
 }) {
   const self = selfOf(state);
@@ -49,7 +53,7 @@ export function TableView({
       <div className="mt-6 flex flex-1 flex-col">
         <Seat person={peer} side="far" />
         <Floor mode={state.mode} phase={state.phase} label={floorLabel} />
-        <Seat person={self} side="near" you />
+        <Seat person={self} side="near" you onLanguage={onLanguage} />
 
         {state.modeProposal ? (
           <div className="mt-4">
@@ -85,7 +89,7 @@ export function TableView({
           onFocus={() => onTyping(true)}
           onBlur={() => onTyping(false)}
         >
-          <ChatComposer onSend={onSend} />
+          <ChatComposer onSend={onSend} onError={onError} />
         </div>
       )}
     </main>
@@ -94,8 +98,15 @@ export function TableView({
 
 function floorCopy(state: RoomState, captureReady: boolean): string {
   if (!captureReady) return "Talk audio arrives next — Chat still works.";
-  if (state.phase === "translating") return "Carrying it across the table…";
-  if (state.phase === "playing") return "They are hearing you.";
+  const mine = state.floorHolderId != null && state.floorHolderId === state.youId;
+  if (state.phase === "translating") {
+    return mine
+      ? "Carrying what you said across the table…"
+      : "Carrying what they said across the table…";
+  }
+  if (state.phase === "playing") {
+    return mine ? "They are hearing you." : "You’re hearing them.";
+  }
   const speaker = state.participants.find((p) => p.speaking);
   if (speaker) {
     return speaker.id === state.youId ? "You’re speaking." : `${speaker.name} is speaking.`;

@@ -12,9 +12,11 @@ type Conn = "connecting" | "live" | "down";
 export function Landing({
   connection,
   error,
+  suspended = false,
 }: {
   connection: Conn;
   error: string | null;
+  suspended?: boolean;
 }) {
   const preset = useMemo(() => rememberedProfile(), []);
   const [name, setName] = useState(preset.name);
@@ -23,8 +25,9 @@ export function Landing({
     () => new URLSearchParams(window.location.search).get("room") ?? "",
   );
 
-  const status =
-    connection === "live"
+  const status = suspended
+    ? "Sitting back down…"
+    : connection === "live"
       ? "Table is set."
       : connection === "connecting"
         ? "Pulling up a chair…"
@@ -115,7 +118,7 @@ export function Landing({
           <button
             type="button"
             onClick={create}
-            disabled={connection !== "live"}
+            disabled={connection !== "live" || suspended}
             className="rounded-sm bg-ink px-5 py-4 text-left text-paper disabled:opacity-40"
           >
             <span className="block font-display text-2xl">Create a table</span>
@@ -136,7 +139,7 @@ export function Landing({
               <button
                 type="button"
                 className="rounded-sm bg-ink px-3 text-paper disabled:opacity-40"
-                disabled={connection !== "live" || !code.trim()}
+                disabled={connection !== "live" || suspended || !code.trim()}
                 onClick={join}
               >
                 Sit

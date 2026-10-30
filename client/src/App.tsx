@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { RoomState } from "@shared/types";
+import type { Language, Mode, RoomState } from "@shared/types";
 import { TalkSession } from "./audio/talkSession";
-import { cancelSpeech, hasVoice, speak } from "./audio/tts";
+import { cancelSpeech, ensureVoices, hasVoice, primeSpeech, speak } from "./audio/tts";
 import { Landing } from "./screens/Landing";
 import { TableView } from "./screens/Table";
 import { Waiting } from "./screens/Waiting";
@@ -10,6 +10,7 @@ import { getClientId } from "./state/session";
 import {
   clearRoom,
   peerOf,
+  rememberProfile,
   rememberRoom,
   rememberedProfile,
   rememberedRoom,
@@ -26,6 +27,10 @@ export function App() {
   const [voiceWarn, setVoiceWarn] = useState<string | null>(null);
   const talkRef = useRef<TalkSession | null>(null);
   const stateRef = useRef<RoomState | null>(null);
+  const playbackGen = useRef(0);
+  const modeRef = useRef<Mode>("chat");
+  const roomCodeRef = useRef<string | null>(null);
+  const [rejoining, setRejoining] = useState(() => Boolean(rememberedRoom()));
   stateRef.current = state;
 
   useEffect(() => {
@@ -43,6 +48,8 @@ export function App() {
           name: profile.name || "You",
           language: profile.language,
         });
+      } else {
+        setRejoining(false);
       }
     };
     const onDisconnect = () => setConn("down");
@@ -50,6 +57,14 @@ export function App() {
     socket.on("disconnect", onDisconnect);
     socket.on("connect_error", onDisconnect);
     socket.on("room:state", (next) => {
+      if (roomCodeRef.current !== next.code) {
+        roomCodeRef.current = next.code;
+        playbackGen.current = next.floorGen;
+      } else {
+        playbackGen.current = Math.max(playbackGen.current, next.floorGen);
+      }
+      modeRef.current = next.mode;
+      setRejoining(false);
       setState(next);
       setError(null);
       rememberRoom(next.code);
@@ -62,27 +77,38 @@ export function App() {
       }
     });
     socket.on("room:error", (payload) => {
+      setRejoining(false);
       setError(payload.message);
-      if (payload.code === "gone") clearRoom();
+      if (payload.code === "gone") {
+        clearRoom();
+        roomCodeRef.current = null;
+        playbackGen.current = 0;
+        modeRef.current = "chat";
+        setState(null);
+        talk.disable();
+        cancelSpeech();
+      }
     });
     socket.on("chat:message", (item) => {
-      setState((cur) =>
-        cur ? { ...cur, transcript: [...cur.transcript, item] } : cur,
-      );
+      setState((cur) => {
+        if (!cur || cur.transcript.some((t) => t.id === item.id)) return cur;
+        return { ...cur, transcript: [...cur.transcript, item] };
+      });
     });
     socket.on("item:updated", (item) => {
-      setState((cur) =>
-        cur
-          ? {
-              ...cur,
-              transcript: cur.transcript.map((t) =>
-                t.id === item.id ? item : t,
-              ),
-            }
-          : cur,
-      );
+      setState((cur) => {
+        if (!cur) return cur;
+        const exists = cur.transcript.some((t) => t.id === item.id);
+        return {
+          ...cur,
+          transcript: exists
+            ? cur.transcript.map((t) => (t.id === item.id ? item : t))
+            : [...cur.transcript, item],
+        };
+      });
     });
     socket.on("mode:changed", ({ mode }) => {
+      modeRef.current = mode;
       setState((cur) => (cur ? { ...cur, mode, modeProposal: null } : cur));
       if (mode !== "talk") {
         talk.disable();
@@ -102,6 +128,7 @@ export function App() {
       );
     });
     socket.on("floor:update", (floor) => {
+      playbackGen.current = Math.max(playbackGen.current, floor.floorGen);
       setState((cur) =>
         cur
           ? {
@@ -115,25 +142,34 @@ export function App() {
       );
     });
     socket.on("talk:play", (payload) => {
-      const me = stateRef.current ? selfOf(stateRef.current) : null;
-      if (me && !hasVoice(me.language)) {
-        setVoiceWarn(
-          me.language === "hi"
-            ? "This device has no Hindi voice. The words are in history."
-            : "This device has no English voice. The words are in history.",
-        );
-      } else {
-        setVoiceWarn(null);
+      if (modeRef.current !== "talk" || payload.floorGen < playbackGen.current) {
+        return;
       }
-      talk.setRemotePlaying(payload.jobId);
-      void speak(payload.text, payload.lang).then((result) => {
-        talk.setRemotePlaying(null);
-        if (result === "ended") {
-          socket.emit("talk:play_ended", { jobId: payload.jobId });
+      void (async () => {
+        await ensureVoices();
+        if (modeRef.current !== "talk" || payload.floorGen < playbackGen.current) {
+          return;
         }
-      });
+        if (!hasVoice(payload.lang)) {
+          setVoiceWarn(
+            payload.lang === "hi"
+              ? "This device has no Hindi voice. The words are in history."
+              : "This device has no English voice. The words are in history.",
+          );
+        } else {
+          setVoiceWarn(null);
+        }
+        talk.setRemotePlaying(payload.jobId);
+        await speak(payload.text, payload.lang);
+        if (talk.playingJobId === payload.jobId) talk.setRemotePlaying(null);
+        if (modeRef.current !== "talk" || payload.floorGen !== playbackGen.current) {
+          return;
+        }
+        socket.emit("talk:play_ended", { jobId: payload.jobId });
+      })();
     });
-    socket.on("talk:interrupted", () => {
+    socket.on("talk:interrupted", (payload) => {
+      playbackGen.current = Math.max(playbackGen.current, payload.floorGen);
       cancelSpeech();
       talk.setRemotePlaying(null);
     });
@@ -142,6 +178,7 @@ export function App() {
     if (socket.connected) onConnect();
     return () => {
       talk.disable();
+      cancelSpeech();
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("connect_error", onDisconnect);
@@ -168,25 +205,43 @@ export function App() {
     if (me.micEnabled) talk.disable();
     else {
       try {
+        primeSpeech();
         await talk.enable();
-      } catch {
-        setError("Microphone permission is required for Talk.");
+      } catch (err) {
+        const named = err instanceof DOMException ? err.name : "";
+        setError(
+          named === "NotAllowedError" || named === "NotFoundError"
+            ? "Microphone permission is required for Talk."
+            : "Talk could not start the microphone.",
+        );
       }
     }
+  }
+
+  function setLanguage(language: Language) {
+    const me = stateRef.current ? selfOf(stateRef.current) : null;
+    if (!me) return;
+    rememberProfile(me.name, language);
+    socket.emit("self:update", { language });
   }
 
   return (
     <div className="min-h-dvh bg-paper text-ink">
       {!state ? (
-        <Landing connection={conn} error={error} />
+        <Landing connection={conn} error={error} suspended={rejoining} />
       ) : waiting ? (
         <Waiting
           state={state}
+          onLanguage={setLanguage}
           onCopy={() => {
             const share = `${window.location.origin}/?room=${state.code}`;
-            void navigator.clipboard.writeText(share);
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1500);
+            void navigator.clipboard.writeText(share).then(
+              () => {
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1500);
+              },
+              () => setError("Could not copy the link. Copy the code instead."),
+            );
           }}
         />
       ) : (
@@ -201,13 +256,23 @@ export function App() {
           }
           onTyping={(typing) => socket.emit("chat:typing", { typing })}
           onPropose={(mode) => socket.emit("mode:propose", { mode })}
-          onRespond={(accept) => socket.emit("mode:respond", { accept })}
+          onRespond={(accept) => {
+            if (accept) primeSpeech();
+            socket.emit("mode:respond", { accept });
+          }}
           onMic={() => void toggleMic()}
+          onLanguage={setLanguage}
+          onError={setError}
         />
       )}
       {copied ? (
         <p className="fixed bottom-4 left-1/2 -translate-x-1/2 text-sm text-cool">
           Link copied
+        </p>
+      ) : null}
+      {state && conn !== "live" ? (
+        <p className="fixed top-12 left-1/2 z-10 -translate-x-1/2 rounded-sm bg-ink px-3 py-1 text-sm text-paper">
+          Reconnecting…
         </p>
       ) : null}
       {(state && error) || voiceWarn ? (

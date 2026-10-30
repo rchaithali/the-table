@@ -21,6 +21,46 @@ function whisperModel(): string {
   return process.env.GROQ_WHISPER_MODEL?.trim() || "whisper-large-v3";
 }
 
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part && typeof part === "object" && "text" in part) {
+        const text = (part as { text?: unknown }).text;
+        return typeof text === "string" ? text : "";
+      }
+      return "";
+    })
+    .join("")
+    .trim();
+}
+
+async function failHttp(
+  res: Response,
+  kind: "mt" | "stt",
+  label: string,
+): Promise<never> {
+  if (res.status === 429) {
+    throw Object.assign(new Error(`${label} is rate limited. Wait a moment and try again.`), {
+      code: "rate_limit" as const,
+    });
+  }
+  if (res.status === 401 || res.status === 403) {
+    console.error(`${label} rejected the API key`, res.status);
+    throw Object.assign(
+      new Error("Groq rejected the API key. Set a valid GROQ_API_KEY and restart."),
+      { code: kind },
+    );
+  }
+  const body = await res.text();
+  console.error(`${label} failed`, res.status, body.slice(0, 180));
+  throw Object.assign(new Error(`${label} failed (${res.status}).`), {
+    code: kind,
+  });
+}
+
 const LANG_NAME: Record<Language, string> = {
   en: "English",
   hi: "Hindi",
@@ -35,44 +75,42 @@ export async function translateText(
   const trimmed = text.trim();
   if (!trimmed) return "";
 
+  const model = translateModel();
+  const messages = [
+    {
+      role: "system",
+      content: `You translate arguments between ${LANG_NAME[from]} and ${LANG_NAME[to]}. Preserve tone, interruptions, and meaning. Output only the translation, no quotes or notes.`,
+    },
+    {
+      role: "user",
+      content: `From ${LANG_NAME[from]} to ${LANG_NAME[to]}:\n${trimmed}`,
+    },
+  ];
+  const payload: Record<string, unknown> = {
+    model,
+    temperature: 0.2,
+    messages,
+  };
+  if (model.includes("gpt-oss")) {
+    payload.reasoning_effort = "low";
+    payload.reasoning_format = "hidden";
+  }
+
   const res = await fetch(CHAT_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: translateModel(),
-      temperature: 0.2,
-      messages: [
-        {
-          role: "system",
-          content: `You translate arguments between ${LANG_NAME[from]} and ${LANG_NAME[to]}. Preserve tone, interruptions, and meaning. Output only the translation, no quotes or notes.`,
-        },
-        {
-          role: "user",
-          content: `From ${LANG_NAME[from]} to ${LANG_NAME[to]}:\n${trimmed}`,
-        },
-      ],
-    }),
+    body: JSON.stringify(payload),
   });
 
-  if (res.status === 429) {
-    throw Object.assign(new Error("Translation rate limited"), {
-      code: "rate_limit" as const,
-    });
-  }
-  if (!res.ok) {
-    const body = await res.text();
-    throw Object.assign(new Error(`Translation failed (${res.status}) ${body.slice(0, 180)}`), {
-      code: "mt" as const,
-    });
-  }
+  if (!res.ok) await failHttp(res, "mt", "Translation");
 
   const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
+    choices?: { message?: { content?: unknown } }[];
   };
-  const out = data.choices?.[0]?.message?.content?.trim();
+  const out = messageText(data.choices?.[0]?.message?.content);
   if (!out) {
     throw Object.assign(new Error("Empty translation"), { code: "mt" as const });
   }
@@ -85,7 +123,14 @@ export async function transcribeAudio(
   language: Language,
 ): Promise<string> {
   const form = new FormData();
-  const blob = new Blob([new Uint8Array(buffer)]);
+  const type = filename.endsWith(".wav")
+    ? "audio/wav"
+    : filename.endsWith(".mp3")
+      ? "audio/mpeg"
+      : filename.endsWith(".m4a")
+        ? "audio/mp4"
+        : "audio/webm";
+  const blob = new Blob([new Uint8Array(buffer)], { type });
   form.append("file", blob, filename);
   form.append("model", whisperModel());
   form.append("language", language);
@@ -98,17 +143,7 @@ export async function transcribeAudio(
     body: form,
   });
 
-  if (res.status === 429) {
-    throw Object.assign(new Error("Speech recognition rate limited"), {
-      code: "rate_limit" as const,
-    });
-  }
-  if (!res.ok) {
-    const body = await res.text();
-    throw Object.assign(new Error(`Transcription failed (${res.status}) ${body.slice(0, 180)}`), {
-      code: "stt" as const,
-    });
-  }
+  if (!res.ok) await failHttp(res, "stt", "Transcription");
 
   const data = (await res.json()) as { text?: string };
   return (data.text ?? "").trim();

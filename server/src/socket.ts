@@ -15,7 +15,7 @@ import {
   type Seat,
 } from "./room.ts";
 import { groqCode, transcribeAudio, translateText } from "./groq.ts";
-import { enqueueOrRun, handleBargeBegin, onPlayEnded } from "./talk.ts";
+import { dropFloorFor, enqueueOrRun, handleBargeBegin, onPlayEnded } from "./talk.ts";
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type Sock = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -29,8 +29,13 @@ function extFor(mime: string): string {
   return "webm";
 }
 
-function bufferFrom(audio: ArrayBuffer): Buffer {
-  return Buffer.from(new Uint8Array(audio));
+function bufferFrom(audio: unknown): Buffer {
+  if (Buffer.isBuffer(audio)) return audio;
+  if (audio instanceof ArrayBuffer) return Buffer.from(audio);
+  if (ArrayBuffer.isView(audio)) {
+    return Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength);
+  }
+  return Buffer.alloc(0);
 }
 
 export function attachSockets(io: IO): void {
@@ -219,14 +224,16 @@ export function attachSockets(io: IO): void {
         socket.emit("talk:rejected", { reason: "not_talk" });
         return;
       }
-      enqueueOrRun(
-        io,
-        ctx.room,
-        ctx.seat,
-        jobId,
-        mime,
-        bufferFrom(audio),
-      );
+      const buf = bufferFrom(audio);
+      if (!buf.length) {
+        socket.emit("talk:error", {
+          jobId,
+          code: "stt",
+          message: "Could not read that audio.",
+        });
+        return;
+      }
+      enqueueOrRun(io, ctx.room, ctx.seat, jobId, mime, buf);
     });
 
     socket.on("talk:play_ended", ({ jobId }) => {
@@ -242,6 +249,7 @@ export function attachSockets(io: IO): void {
       if (!room) return;
       const seat = markDisconnected(room, socket.id);
       if (!seat) return;
+      dropFloorFor(io, room);
       broadcastState(io, room);
       seat.disconnectTimer = setTimeout(() => {
         if (seat.socketId) return;

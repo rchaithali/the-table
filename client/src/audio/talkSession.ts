@@ -1,4 +1,5 @@
 import { socket } from "../socket";
+import { requestMicrophone } from "./dictate";
 import { EnergyVad, defaultVad } from "./vad";
 import { floatTo16kWav } from "./wav";
 import { cancelSpeech } from "./tts";
@@ -28,9 +29,7 @@ export class TalkSession {
 
   async enable(): Promise<void> {
     if (this.enabled) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
-    });
+    this.stream = await requestMicrophone();
     this.ctx = new AudioContext();
     await this.ctx.resume();
     const blob = new Blob([workletSource], { type: "text/javascript" });
@@ -46,11 +45,16 @@ export class TalkSession {
     this.node.port.onmessage = (e: MessageEvent<Float32Array>) => {
       if (!this.enabled || !this.vad || !this.ctx) return;
       if (performance.now() < this.bargeLockUntil) return;
-      const frame = e.data;
-      const barge = this.remotePlaying;
-      if (this.vad.active || barge) this.chunks.push(new Float32Array(frame));
-      else if (this.chunks.length < 12) this.chunks.push(new Float32Array(frame));
-      this.vad.push(frame, barge);
+      const frame = new Float32Array(e.data);
+      this.chunks.push(frame);
+      this.vad.push(frame, this.remotePlaying);
+      if (!this.vad.active) {
+        const maxFrames = Math.max(
+          1,
+          Math.ceil((this.ctx.sampleRate * 0.35) / Math.max(1, frame.length)),
+        );
+        while (this.chunks.length > maxFrames) this.chunks.shift();
+      }
     };
     this.source.connect(this.node);
     const mute = this.ctx.createGain();
@@ -62,7 +66,10 @@ export class TalkSession {
   }
 
   disable(): void {
+    const was = this.enabled;
     this.enabled = false;
+    this.remotePlaying = false;
+    this.playingJobId = null;
     this.vad?.reset();
     this.chunks = [];
     this.node?.disconnect();
@@ -73,6 +80,7 @@ export class TalkSession {
     this.source = null;
     this.stream = null;
     this.ctx = null;
+    if (!was) return;
     socket.emit("talk:mic", { enabled: false });
     socket.emit("talk:activity", { speaking: false });
   }
