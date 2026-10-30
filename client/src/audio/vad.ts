@@ -7,15 +7,17 @@ export interface VadConfig {
   maxMs: number;
   startDb: number;
   bargeDb: number;
+  bargeStartMs: number;
 }
 
 export const defaultVad: VadConfig = {
-  startMs: 120,
-  hangoverMs: 720,
-  minMs: 400,
-  maxMs: 10000,
-  startDb: -42,
-  bargeDb: -32,
+  startMs: 160,
+  hangoverMs: 1200,
+  minMs: 600,
+  maxMs: 14000,
+  startDb: -38,
+  bargeDb: -24,
+  bargeStartMs: 280,
 };
 
 export class EnergyVad {
@@ -48,7 +50,8 @@ export class EnergyVad {
       this.voiced = Math.max(0, this.voiced - frameMs * 0.4);
     }
 
-    if (!this.speaking && this.voiced >= this.cfg.startMs) {
+    const needed = barge ? this.cfg.bargeStartMs : this.cfg.startMs;
+    if (!this.speaking && this.voiced >= needed) {
       this.speaking = true;
       this.startedAt = now;
       this.onEvent("start");

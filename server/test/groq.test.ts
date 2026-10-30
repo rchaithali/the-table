@@ -6,7 +6,11 @@ test("translation request hides gpt-oss reasoning and keeps only the answer", as
   process.env.GROQ_API_KEY = "test-key";
   process.env.GROQ_TRANSLATE_MODEL = "openai/gpt-oss-20b";
   const original = globalThis.fetch;
-  let body: { reasoning_format?: string; reasoning_effort?: string } | null = null;
+  let body: {
+    reasoning_format?: string;
+    reasoning_effort?: string;
+    messages?: { content?: string }[];
+  } | null = null;
   globalThis.fetch = async (_input, init) => {
     body = JSON.parse(String(init?.body)) as typeof body;
     return Response.json({
@@ -27,6 +31,7 @@ test("translation request hides gpt-oss reasoning and keeps only the answer", as
     assert.equal(translated, "मैं बिल्कुल असहमत हूँ।");
     assert.equal(body?.reasoning_format, "hidden");
     assert.equal(body?.reasoning_effort, "low");
+    assert.match(String(body?.messages?.[0]?.content), /Do not soften/);
 
     globalThis.fetch = async () =>
       Response.json({ error: { message: "Invalid API Key gsk_secretvalue" } }, { status: 401 });

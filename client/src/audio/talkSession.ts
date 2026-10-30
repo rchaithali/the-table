@@ -25,6 +25,7 @@ export class TalkSession {
   private enabled = false;
   private remotePlaying = false;
   private bargeLockUntil = 0;
+  private hearLockUntil = 0;
   playingJobId: string | null = null;
 
   async enable(): Promise<void> {
@@ -45,6 +46,7 @@ export class TalkSession {
     this.node.port.onmessage = (e: MessageEvent<Float32Array>) => {
       if (!this.enabled || !this.vad || !this.ctx) return;
       if (performance.now() < this.bargeLockUntil) return;
+      if (this.remotePlaying && performance.now() < this.hearLockUntil) return;
       const frame = new Float32Array(e.data);
       this.chunks.push(frame);
       this.vad.push(frame, this.remotePlaying);
@@ -88,6 +90,11 @@ export class TalkSession {
   setRemotePlaying(jobId: string | null): void {
     this.remotePlaying = Boolean(jobId);
     this.playingJobId = jobId;
+    if (!jobId) this.hearLockUntil = 0;
+  }
+
+  armHearLock(): void {
+    this.hearLockUntil = performance.now() + 350;
   }
 
   private onStart(): void {

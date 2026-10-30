@@ -79,7 +79,7 @@ export async function translateText(
   const messages = [
     {
       role: "system",
-      content: `You translate arguments between ${LANG_NAME[from]} and ${LANG_NAME[to]}. Preserve tone, interruptions, and meaning. Output only the translation, no quotes or notes.`,
+      content: `You translate arguments between ${LANG_NAME[from]} and ${LANG_NAME[to]}. Preserve tone, disagreement, and emotional intensity. Do not soften or rewrite the speaker. Output only the translation, no quotes or notes.`,
     },
     {
       role: "user",
@@ -136,6 +136,7 @@ export async function transcribeAudio(
   form.append("language", language);
   form.append("response_format", "json");
   form.append("temperature", "0");
+  form.append("prompt", language === "hi" ? "हिंदी बातचीत।" : "English conversation.");
 
   const res = await fetch(TRANSCRIBE_URL, {
     method: "POST",

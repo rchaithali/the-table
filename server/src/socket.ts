@@ -15,6 +15,7 @@ import {
   type Seat,
 } from "./room.ts";
 import { groqCode, transcribeAudio, translateText } from "./groq.ts";
+import { isSpokenText } from "./speech.ts";
 import { dropFloorFor, enqueueOrRun, handleBargeBegin, onPlayEnded } from "./talk.ts";
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -142,7 +143,7 @@ export function attachSockets(io: IO): void {
           `dictate.${extFor(mime)}`,
           ctx.seat.language,
         );
-        if (!text) {
+        if (!isSpokenText(text)) {
           socket.emit("room:error", {
             code: "empty",
             message: "We didn’t catch that. Try dictating again.",

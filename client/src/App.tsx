@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Language, Mode, RoomState } from "@shared/types";
 import { TalkSession } from "./audio/talkSession";
-import { cancelSpeech, ensureVoices, hasVoice, primeSpeech, speak } from "./audio/tts";
+import { cancelSpeech, ensureVoices, primeSpeech, speak } from "./audio/tts";
 import { Landing } from "./screens/Landing";
 import { TableView } from "./screens/Table";
 import { Waiting } from "./screens/Waiting";
@@ -150,18 +150,18 @@ export function App() {
         if (modeRef.current !== "talk" || payload.floorGen < playbackGen.current) {
           return;
         }
-        if (!hasVoice(payload.lang)) {
+        talk.setRemotePlaying(payload.jobId);
+        const heard = await speak(payload.text, payload.lang, () => talk.armHearLock());
+        if (talk.playingJobId === payload.jobId) talk.setRemotePlaying(null);
+        if (heard === "unavailable" || heard === "failed") {
           setVoiceWarn(
             payload.lang === "hi"
-              ? "This device has no Hindi voice. The words are in history."
-              : "This device has no English voice. The words are in history.",
+              ? "Hindi audio did not play. The words are in the history. Use headphones, and keep the Lekha Hindi voice enabled."
+              : "English audio did not play. The words are in the history.",
           );
-        } else {
+        } else if (heard === "ended") {
           setVoiceWarn(null);
         }
-        talk.setRemotePlaying(payload.jobId);
-        await speak(payload.text, payload.lang);
-        if (talk.playingJobId === payload.jobId) talk.setRemotePlaying(null);
         if (modeRef.current !== "talk" || payload.floorGen !== playbackGen.current) {
           return;
         }

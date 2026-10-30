@@ -45,11 +45,16 @@ function connect(name: string, url: string) {
     const queued = slot.items.shift();
     if (queued) return Promise.resolve(queued as T);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`${name} timeout ${event}`)), ms);
-      slot.waiters.push((value) => {
+      const onValue = (value: AnyEvent) => {
         clearTimeout(timer);
         resolve(value as T);
-      });
+      };
+      const timer = setTimeout(() => {
+        const index = slot.waiters.indexOf(onValue);
+        if (index >= 0) slot.waiters.splice(index, 1);
+        reject(new Error(`${name} timeout ${event}`));
+      }, ms);
+      slot.waiters.push(onValue);
     });
   }
   async function until<T>(event: string, pred: (value: T) => boolean, ms = 4000): Promise<T> {
@@ -66,6 +71,8 @@ function connect(name: string, url: string) {
 test("two people chat, switch modes, and an interruption drops stale speech", { timeout: 20000 }, async () => {
   let seenAudio = 0;
   let hold = false;
+  let lastPrompt = "";
+  const nextTranscripts: string[] = [];
   const release: Array<() => void> = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -74,12 +81,15 @@ test("two people chat, switch modes, and an interruption drops stale speech", { 
       if (init?.body instanceof FormData) {
         const file = init.body.get("file");
         seenAudio = file instanceof Blob ? file.size : -1;
+        lastPrompt = String(init.body.get("prompt") ?? "");
       }
       if (hold) {
         hold = false;
         await new Promise<void>((resolve) => release.push(resolve));
       }
-      return Response.json({ text: "I completely disagree with that." });
+      return Response.json({
+        text: nextTranscripts.shift() ?? "I completely disagree with that.",
+      });
     }
     if (url.includes("/chat/completions")) {
       const raw = JSON.parse(String(init?.body ?? "{}")) as {
@@ -87,14 +97,14 @@ test("two people chat, switch modes, and an interruption drops stale speech", { 
       };
       const user = String(raw.messages?.at(-1)?.content ?? "");
       const toHi = user.includes("to Hindi");
+      let content = toHi ? "मैं बिल्कुल असहमत हूँ।" : "I completely disagree.";
+      if (user.includes("TIME")) content = "समय";
+      if (user.includes("PLACE")) content = "जगह";
+      if (user.includes("DONE")) content = "हो गया";
+      if (user.includes("AFTER")) content = "बाद में";
+      if (user.includes("EMPTYOUT")) content = ".";
       return Response.json({
-        choices: [
-          {
-            message: {
-              content: toHi ? "मैं बिल्कुल असहमत हूँ।" : "I completely disagree.",
-            },
-          },
-        ],
+        choices: [{ message: { content } }],
       });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -250,6 +260,60 @@ test("two people chat, switch modes, and an interruption drops stale speech", { 
       (item) => item.status === "cut_off",
     );
     assert.equal(cut.interruptedBy, "ravi");
+
+    nextTranscripts.push("TIME one", "PLACE two", "DONE three");
+    for (const [jobId, text] of [
+      ["job-3", "समय"],
+      ["job-4", "जगह"],
+      ["job-5", "हो गया"],
+    ] as const) {
+      a.socket.emit("talk:utterance", { jobId, mime: "audio/wav", audio: audio.buffer });
+      const turn = await b.next<{ text: string; jobId: string }>("talk:play");
+      assert.equal(turn.jobId, jobId);
+      assert.equal(turn.text, text);
+      b.socket.emit("talk:play_ended", { jobId });
+      await a.until<{ phase: string; jobId: string | null }>(
+        "floor:update",
+        (floor) => floor.phase === "idle" && floor.jobId === null,
+      );
+    }
+    assert.match(lastPrompt, /English/);
+
+    b.arm("talk:play");
+    nextTranscripts.push(".");
+    a.socket.emit("talk:utterance", { jobId: "job-dot", mime: "audio/wav", audio: audio.buffer });
+    const missed = await a.next<{ code: string }>("talk:error");
+    assert.equal(missed.code, "empty");
+    const missedItem = await a.until<TranscriptItem>(
+      "item:updated",
+      (item) => item.status === "failed" && item.sourceText === "",
+    );
+    assert.equal(missedItem.sourceText, "");
+    assert.equal(await b.next("talk:play", 400).then(() => "leaked", () => "none"), "none");
+
+    nextTranscripts.push("EMPTYOUT now");
+    b.arm("talk:play");
+    a.socket.emit("talk:utterance", { jobId: "job-empty", mime: "audio/wav", audio: audio.buffer });
+    const emptyTranslation = await a.next<{ code: string }>("talk:error");
+    assert.equal(emptyTranslation.code, "mt");
+    assert.equal(await b.next("talk:play", 400).then(() => "leaked", () => "none"), "none");
+
+    nextTranscripts.push("AFTER the miss");
+    a.socket.emit("talk:utterance", { jobId: "job-6", mime: "audio/wav", audio: audio.buffer });
+    const recovered = await b.next<{ text: string; jobId: string }>("talk:play");
+    assert.equal(recovered.jobId, "job-6");
+    assert.equal(recovered.text, "बाद में");
+    b.socket.emit("talk:play_ended", { jobId: "job-6" });
+
+    a.socket.emit("talk:utterance", { jobId: "job-q1", mime: "audio/wav", audio: audio.buffer });
+    a.socket.emit("talk:utterance", { jobId: "job-q2", mime: "audio/wav", audio: audio.buffer });
+    const queuedFirst = await b.next<{ jobId: string }>("talk:play");
+    assert.equal(queuedFirst.jobId, "job-q1");
+    assert.equal(await b.next("talk:play", 300).then(() => "early", () => "held"), "held");
+    b.socket.emit("talk:play_ended", { jobId: "job-q1" });
+    const queuedSecond = await b.next<{ jobId: string }>("talk:play");
+    assert.equal(queuedSecond.jobId, "job-q2");
+    b.socket.emit("talk:play_ended", { jobId: "job-q2" });
 
     a.arm("room:state");
     a.socket.emit("mode:propose", { mode: "chat" });

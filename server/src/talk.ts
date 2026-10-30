@@ -5,6 +5,7 @@ import type {
   ServerToClientEvents,
 } from "./types.ts";
 import { groqCode, transcribeAudio, translateText } from "./groq.ts";
+import { isSpokenText, wavLooksSilent } from "./speech.ts";
 import {
   pushItem,
   type QueuedUtterance,
@@ -176,13 +177,21 @@ async function runUtterance(io: IO, room: Room, queued: QueuedUtterance): Promis
   io.to(room.code).emit("chat:message", item);
 
   try {
+    if (wavLooksSilent(queued.buf)) {
+      item.sourceText = "";
+      item.status = "failed";
+      io.to(room.code).emit("item:updated", item);
+      fail(io, room, queued.job.id, "empty", "We didn’t catch that.");
+      return;
+    }
     const source = await transcribeAudio(
       queued.buf,
       `talk.${extFor(queued.mime)}`,
       queued.sourceLang as Language,
     );
     if (abandonIfStale(io, room, queued, item)) return;
-    if (!source) {
+    if (!isSpokenText(source)) {
+      item.sourceText = "";
       item.status = "failed";
       io.to(room.code).emit("item:updated", item);
       fail(io, room, queued.job.id, "empty", "We didn’t catch that.");
@@ -195,6 +204,13 @@ async function runUtterance(io: IO, room: Room, queued: QueuedUtterance): Promis
       listener.language,
     );
     if (abandonIfStale(io, room, queued, item)) return;
+    if (!isSpokenText(translated)) {
+      item.translatedText = null;
+      item.status = "failed";
+      io.to(room.code).emit("item:updated", item);
+      fail(io, room, queued.job.id, "mt", "Translation came back empty.");
+      return;
+    }
     item.translatedText = translated;
     item.status = "ok";
     io.to(room.code).emit("item:updated", item);

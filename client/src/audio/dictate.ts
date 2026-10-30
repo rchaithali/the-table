@@ -1,7 +1,8 @@
 export function requestMicrophone(): Promise<MediaStream> {
-  const requested = navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true },
-  });
+  const base = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  const requested = navigator.mediaDevices
+    .getUserMedia({ audio: { ...base, voiceIsolation: true } as MediaTrackConstraints })
+    .catch(() => navigator.mediaDevices.getUserMedia({ audio: base }));
   let settled = false;
   const timeout = new Promise<MediaStream>((_, reject) => {
     window.setTimeout(() => {

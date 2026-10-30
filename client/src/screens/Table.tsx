@@ -111,5 +111,7 @@ function floorCopy(state: RoomState, captureReady: boolean): string {
   if (speaker) {
     return speaker.id === state.youId ? "You’re speaking." : `${speaker.name} is speaking.`;
   }
-  return "Mics start muted. Tap once to keep listening.";
+  const me = state.participants.find((p) => p.id === state.youId);
+  if (!me?.micEnabled) return "Mic is muted. Tap Unmute once, then keep talking.";
+  return "Listening. Pause when the sentence is finished. Headphones keep the translation out of the mic.";
 }

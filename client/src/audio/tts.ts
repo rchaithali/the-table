@@ -1,7 +1,9 @@
 import type { Language } from "@shared/types";
 
 let speechToken = 0;
-let voicesPromise: Promise<void> | null = null;
+let voicesPromise: Promise<SpeechSynthesisVoice[]> | null = null;
+
+export type SpeakResult = "ended" | "canceled" | "unavailable" | "failed";
 
 export function cancelSpeech(): void {
   speechToken += 1;
@@ -10,41 +12,58 @@ export function cancelSpeech(): void {
 
 export function primeSpeech(): void {
   if (typeof window === "undefined") return;
-  window.speechSynthesis.getVoices();
+  const synth = window.speechSynthesis;
+  synth.getVoices();
+  const primer = new SpeechSynthesisUtterance(" ");
+  primer.volume = 0.01;
+  primer.rate = 2;
+  synth.resume();
+  synth.speak(primer);
 }
 
-export function ensureVoices(): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
+function matches(lang: Language, voice: SpeechSynthesisVoice): boolean {
+  const code = voice.lang.replaceAll("_", "-");
+  if (lang === "hi") return /^hi([-_]|$)/i.test(code) || /hindi|lekha/i.test(voice.name);
+  return /^en([-_]|$)/i.test(code) || /english/i.test(voice.name);
+}
+
+export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
+  if (typeof window === "undefined") return Promise.resolve([]);
   const synth = window.speechSynthesis;
-  if (synth.getVoices().length) return Promise.resolve();
+  const ready = (list: SpeechSynthesisVoice[]) =>
+    list.some((voice) => matches("en", voice)) && list.some((voice) => matches("hi", voice));
+  const current = synth.getVoices();
+  if (ready(current)) return Promise.resolve(current);
   if (!voicesPromise) {
     voicesPromise = new Promise((resolve) => {
       const finish = () => {
-        if (!synth.getVoices().length) return;
+        const list = synth.getVoices();
+        if (!ready(list) && list.length === 0) return;
+        if (!ready(list)) return;
         synth.removeEventListener("voiceschanged", finish);
-        resolve();
+        resolve(list);
       };
       synth.addEventListener("voiceschanged", finish);
       synth.getVoices();
       window.setTimeout(() => {
         synth.removeEventListener("voiceschanged", finish);
-        resolve();
-      }, 1200);
+        resolve(synth.getVoices());
+      }, 1500);
     });
   }
-  return voicesPromise;
+  return voicesPromise.then((list) => {
+    if (list.length === 0) voicesPromise = null;
+    return list;
+  });
 }
 
-export function pickVoice(lang: Language): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis.getVoices();
-  const want = lang === "hi" ? /^hi/i : /^en/i;
-  return (
-    voices.find((v) => want.test(v.lang)) ??
-    voices.find((v) =>
-      lang === "hi" ? /hindi/i.test(v.name) : /english/i.test(v.name),
-    ) ??
-    null
-  );
+export function ensureVoices(): Promise<void> {
+  return loadVoices().then(() => undefined);
+}
+
+export function pickVoice(lang: Language, voices = window.speechSynthesis.getVoices()): SpeechSynthesisVoice | null {
+  const found = voices.filter((voice) => matches(lang, voice));
+  return found.find((voice) => voice.localService) ?? found[0] ?? null;
 }
 
 export function hasVoice(lang: Language): boolean {
@@ -54,27 +73,61 @@ export function hasVoice(lang: Language): boolean {
 export async function speak(
   text: string,
   lang: Language,
-): Promise<"ended" | "canceled"> {
+  onStart?: () => void,
+): Promise<SpeakResult> {
   const my = ++speechToken;
-  window.speechSynthesis.cancel();
-  await ensureVoices();
-  await new Promise((resolve) => window.setTimeout(resolve, 40));
+  const synth = window.speechSynthesis;
+  const wasBusy = synth.speaking || synth.pending;
+  if (wasBusy) synth.cancel();
+  const voices = await loadVoices();
+  if (wasBusy) await new Promise((resolve) => window.setTimeout(resolve, 120));
   if (my !== speechToken) return "canceled";
-  const voice = pickVoice(lang);
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = lang === "hi" ? "hi-IN" : "en-IN";
-  if (voice) utterance.voice = voice;
-  utterance.rate = 1;
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (result: "ended" | "canceled") => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-    utterance.onend = () => finish(my === speechToken ? "ended" : "canceled");
-    utterance.onerror = () => finish("canceled");
-    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-    window.speechSynthesis.speak(utterance);
-  });
+  const voice = pickVoice(lang, voices.length ? voices : synth.getVoices());
+  if (!voice) return "unavailable";
+
+  const say = () =>
+    new Promise<SpeakResult>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.voice = voice;
+      utterance.lang = voice.lang.replaceAll("_", "-") || (lang === "hi" ? "hi-IN" : "en-IN");
+      utterance.rate = lang === "hi" ? 0.95 : 1;
+      let settled = false;
+      let started = false;
+      const finish = (result: SpeakResult) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(startTimer);
+        window.clearTimeout(endTimer);
+        resolve(result);
+      };
+      const startTimer = window.setTimeout(() => {
+        if (!started) finish("failed");
+      }, 1500);
+      const endTimer = window.setTimeout(
+        () => finish(started ? "ended" : "failed"),
+        Math.min(20000, Math.max(5000, text.length * 140)),
+      );
+      utterance.onstart = () => {
+        started = true;
+        onStart?.();
+      };
+      utterance.onend = () => finish(my === speechToken ? "ended" : "canceled");
+      utterance.onerror = (event) => {
+        const reason = event.error;
+        if (my !== speechToken || reason === "canceled" || reason === "interrupted") {
+          finish("canceled");
+          return;
+        }
+        finish("failed");
+      };
+      if (synth.paused) synth.resume();
+      synth.speak(utterance);
+    });
+
+  const first = await say();
+  if (first !== "failed" || my !== speechToken) return first;
+  synth.cancel();
+  await new Promise((resolve) => window.setTimeout(resolve, 120));
+  if (my !== speechToken) return "canceled";
+  return say();
 }

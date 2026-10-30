@@ -1,6 +1,10 @@
 import type { RoomState, TranscriptItem } from "@shared/types";
 import { useState } from "react";
 
+function hasWords(text: string | null): boolean {
+  return Boolean(text && /\p{L}/u.test(text));
+}
+
 export function Transcript({
   state,
   collapsed,
@@ -45,10 +49,13 @@ function Line({
   youId: string | null;
 }) {
   const mine = item.authorId === youId;
-  const primary = mine
-    ? item.sourceText
-    : (item.translatedText ?? item.sourceText);
-  const original = mine ? item.translatedText : item.sourceText;
+  const missed = item.status === "failed" && !hasWords(item.sourceText);
+  const primary = missed
+    ? "Didn’t catch that."
+    : mine
+      ? item.sourceText
+      : (item.translatedText ?? item.sourceText);
+  const original = missed ? null : mine ? item.translatedText : item.sourceText;
   return (
     <li className={mine ? "sm:ml-10" : "sm:mr-10"}>
       <p className="text-xs uppercase tracking-[0.14em] text-ink/40">
@@ -56,7 +63,8 @@ function Line({
         {item.kind === "talk" ? " · spoken" : ""}
         {item.status === "cut_off" ? " · cut off" : ""}
         {item.status === "translating" ? " · translating" : ""}
-        {item.status === "failed" ? " · couldn’t translate" : ""}
+        {missed ? " · didn’t catch that" : ""}
+        {item.status === "failed" && !missed ? " · couldn’t translate" : ""}
       </p>
       <p className="mt-1 font-display text-lg leading-snug">{primary}</p>
       {original && item.status !== "translating" ? (

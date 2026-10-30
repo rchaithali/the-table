@@ -92,12 +92,23 @@ export function ChatComposer({
 
   return (
     <form
-      className="flex items-end gap-2 border-t border-rule pt-3"
+      className="border-t border-rule pt-3"
       onSubmit={(e) => {
         e.preventDefault();
         submit();
       }}
     >
+      {dictating ? (
+        <p className="mb-2 text-sm text-ink/60">
+          Recording. Stop the mic, then edit the words. Nothing is sent until you press Send.
+        </p>
+      ) : null}
+      {busy ? (
+        <p className="mb-2 text-sm text-ink/60">
+          Transcribing. The words will appear here for you to edit, then press Send.
+        </p>
+      ) : null}
+      <div className="flex items-end gap-2">
       <button
         type="button"
         className={`h-11 w-11 shrink-0 rounded-full border ${
@@ -131,6 +142,7 @@ export function ChatComposer({
       >
         Send
       </button>
+      </div>
     </form>
   );
 }
