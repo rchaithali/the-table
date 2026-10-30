@@ -66,6 +66,7 @@ export interface ServerToClientEvents {
   "peer:updated": (payload: Participant) => void;
   "chat:message": (payload: TranscriptItem) => void;
   "chat:typing": (payload: { id: string; typing: boolean }) => void;
+  "chat:transcribed": (payload: { requestId: string; text: string }) => void;
   "mode:proposed": (payload: ModeProposal) => void;
   "mode:changed": (payload: { mode: Mode }) => void;
   "floor:update": (payload: {
@@ -97,7 +98,11 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  "room:create": (payload: { name: string; language: Language }) => void;
+  "room:create": (payload: {
+    name: string;
+    language: Language;
+    clientId: string;
+  }) => void;
   "room:join": (payload: {
     code: string;
     clientId: string;
@@ -107,6 +112,11 @@ export interface ClientToServerEvents {
   "self:update": (payload: { name?: string; language?: Language }) => void;
   "chat:send": (payload: { clientMsgId: string; text: string }) => void;
   "chat:typing": (payload: { typing: boolean }) => void;
+  "chat:transcribe": (payload: {
+    requestId: string;
+    mime: string;
+    audio: ArrayBuffer;
+  }) => void;
   "mode:propose": (payload: { mode: Mode }) => void;
   "mode:respond": (payload: { accept: boolean }) => void;
   "talk:mic": (payload: { enabled: boolean }) => void;
