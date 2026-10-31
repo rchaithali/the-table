@@ -68,6 +68,7 @@ export function attachSockets(io: IO): void {
         return;
       }
       const existing = room.seatByClient(clientId);
+      const fillingEmptySeat = room.absent !== null;
       const result = addOrReconnect(room, {
         clientId,
         socketId: socket.id,
@@ -82,7 +83,7 @@ export function attachSockets(io: IO): void {
         return;
       }
       bindSocket(socket, room, result);
-      if (!existing) preferRoomMode(io, room, result, mode);
+      if (!existing && !fillingEmptySeat) preferRoomMode(io, room, result, mode);
       announceArrival(socket, room, result);
       broadcastState(io, room);
     });
@@ -157,6 +158,7 @@ export function attachSockets(io: IO): void {
         });
       }
       io.to(ctx.room.code).emit("item:updated", item);
+      broadcastState(io, ctx.room);
     });
 
     socket.on("chat:transcribe", async ({ requestId, mime, audio }) => {
@@ -291,6 +293,7 @@ export function attachSockets(io: IO): void {
       if (!room) return;
       const seat = markDisconnected(room, socket.id);
       if (!seat) return;
+      room.modeProposal = null;
       dropFloorFor(io, room);
       broadcastState(io, room);
       seat.disconnectTimer = setTimeout(() => {

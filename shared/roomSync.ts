@@ -1,12 +1,17 @@
-import type { RoomState, TranscriptItem } from "./types.ts";
+import type { ModeProposal, RoomState, TranscriptItem } from "./types.ts";
 
-/** Server order wins. Local-only lines are kept so an in-flight message is not dropped. */
+/**
+ * Server order wins for ids the server still has.
+ * An empty snapshot does not erase lines the page already has.
+ * Local-only lines stay so an in-flight message is not dropped.
+ */
 export function mergeTranscript(
   local: TranscriptItem[] | undefined,
   incoming: TranscriptItem[] | undefined,
 ): TranscriptItem[] {
-  const server = incoming ?? [];
-  const mine = local ?? [];
+  const server = Array.isArray(incoming) ? incoming : [];
+  const mine = Array.isArray(local) ? local : [];
+  if (server.length === 0) return mine;
   const latest = new Map<string, TranscriptItem>();
   for (const item of server) latest.set(item.id, item);
   for (const item of mine) {
@@ -21,6 +26,15 @@ export function mergeTranscript(
     if (kept) ordered.push(kept);
   }
   return ordered;
+}
+
+/** A switch request is only real while the person who asked is still seated. */
+export function seatedProposal(
+  proposal: ModeProposal | null,
+  participants: { id: string }[],
+): ModeProposal | null {
+  if (!proposal) return null;
+  return participants.some((person) => person.id === proposal.fromId) ? proposal : null;
 }
 
 /**
