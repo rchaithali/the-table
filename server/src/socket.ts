@@ -15,7 +15,7 @@ import {
   type Room,
   type Seat,
 } from "./room.ts";
-import { groqCode, transcribeAudio, translateText } from "./groq.ts";
+import { groqCode, restoreHindiScript, transcribeAudio, translateText } from "./groq.ts";
 import { isSpokenText, wavLooksSilent } from "./speech.ts";
 import { dropFloorFor, enqueueOrRun, handleBargeBegin, onPlayEnded } from "./talk.ts";
 
@@ -129,23 +129,21 @@ export function attachSockets(io: IO): void {
       if (!trimmed) return;
       const peer = ctx.room.other(ctx.seat.clientId);
       const targetLang: Language = peer?.language ?? opposite(ctx.seat.language);
+      const source = await chatSource(ctx.seat.language, trimmed);
       const item = pushItem(ctx.room, {
         kind: "chat",
         authorId: ctx.seat.clientId,
         sourceLang: ctx.seat.language,
         targetLang,
-        sourceText: trimmed,
+        sourceText: source.text,
         translatedText: null,
         status: "translating",
       });
       io.to(ctx.room.code).emit("chat:message", item);
       try {
-        const translated = await translateText(
-          trimmed,
-          ctx.seat.language,
-          targetLang,
-        );
-        item.translatedText = translated;
+        item.translatedText = source.english
+          ? source.text
+          : await translateText(source.text, ctx.seat.language, targetLang);
         item.status = "ok";
       } catch (err) {
         item.status = "failed";
@@ -170,19 +168,20 @@ export function attachSockets(io: IO): void {
         return;
       }
       try {
-        const text = await transcribeAudio(
+        const heard = await transcribeAudio(
           audioBytes,
           `dictate.${extFor(mime)}`,
           ctx.seat.language,
         );
-        if (!isSpokenText(text)) {
+        if (!isSpokenText(heard)) {
           socket.emit("room:error", {
             code: "empty",
             message: "We didn’t catch that. Try dictating again.",
           });
           return;
         }
-        socket.emit("chat:transcribed", { requestId, text });
+        const source = await chatSource(ctx.seat.language, heard);
+        socket.emit("chat:transcribed", { requestId, text: source.text });
       } catch (err) {
         socket.emit("room:error", {
           code: groqCode(err),
@@ -317,6 +316,19 @@ function preferRoomMode(io: IO, room: Room, seat: Seat, mode: Mode | undefined):
 
 function opposite(language: Language): Language {
   return language === "en" ? "hi" : "en";
+}
+
+async function chatSource(
+  language: Language,
+  text: string,
+): Promise<{ text: string; english: boolean }> {
+  if (language !== "hi") return { text, english: false };
+  try {
+    return await restoreHindiScript(text);
+  } catch (err) {
+    console.error("Hindi script restore failed", err instanceof Error ? err.message : err);
+    return { text, english: false };
+  }
 }
 
 function context(socket: Sock): { room: Room; seat: Seat; socket: Sock } | null {

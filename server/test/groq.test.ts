@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { translateText } from "../src/groq.ts";
+import { restoreHindiScript, translateText } from "../src/groq.ts";
 
 test("translation request hides gpt-oss reasoning and keeps only the answer", async () => {
   process.env.GROQ_API_KEY = "test-key";
@@ -65,6 +65,41 @@ test("a stalled Groq request becomes a retryable timeout", async () => {
         return true;
       },
     );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("Romanized Hindi is restored to Devanagari and English is left alone", async () => {
+  process.env.GROQ_API_KEY = "test-key";
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({ choices: [{ message: { content: "HI: अभी आप क्या कर रहे हो?" } }] });
+  try {
+    const hindi = await restoreHindiScript("Abhi aap kya kar rahe ho?");
+    assert.equal(hindi.english, false);
+    assert.equal(hindi.text, "अभी आप क्या कर रहे हो?");
+
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: "EN" } }] });
+    const english = await restoreHindiScript("What are you doing right now?");
+    assert.equal(english.english, true);
+    assert.equal(english.text, "What are you doing right now?");
+
+    let called = false;
+    globalThis.fetch = async () => {
+      called = true;
+      return Response.json({});
+    };
+    const script = await restoreHindiScript("अभी आप क्या कर रहे हो?");
+    assert.equal(called, false);
+    assert.equal(script.text, "अभी आप क्या कर रहे हो?");
+    assert.equal(script.english, false);
+
+    globalThis.fetch = async () =>
+      Response.json({ choices: [{ message: { content: "What are you doing right now?" } }] });
+    const rejected = await restoreHindiScript("Abhi aap kya kar rahe ho?");
+    assert.equal(rejected.english, false);
+    assert.equal(rejected.text, "Abhi aap kya kar rahe ho?");
   } finally {
     globalThis.fetch = original;
   }

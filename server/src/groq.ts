@@ -151,6 +151,69 @@ export async function translateText(
   return out;
 }
 
+function hasDevanagari(text: string): boolean {
+  return /\p{Script=Devanagari}/u.test(text);
+}
+
+function hasLatin(text: string): boolean {
+  return /\p{Script=Latin}/u.test(text);
+}
+
+/** Romanized Hindi becomes Devanagari. English and existing Devanagari stay as written. */
+export async function restoreHindiScript(
+  text: string,
+): Promise<{ text: string; english: boolean }> {
+  const trimmed = text.trim();
+  if (!trimmed || hasDevanagari(trimmed) || !hasLatin(trimmed)) {
+    return { text: trimmed, english: false };
+  }
+
+  const model = translateModel();
+  const payload: Record<string, unknown> = {
+    model,
+    temperature: 0,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You restore Hindi that was written in Latin letters. If the message is Romanized Hindi, reply with exactly HI: and then only that sentence in Devanagari. If the message is English, reply with exactly EN. Do not translate English into Hindi. Do not add notes.",
+      },
+      { role: "user", content: trimmed },
+    ],
+  };
+  if (model.includes("gpt-oss")) {
+    payload.reasoning_effort = "low";
+    payload.reasoning_format = "hidden";
+  }
+
+  const res = await callGroq(
+    CHAT_URL,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "mt",
+    "Transcription",
+  );
+  if (!res.ok) await failHttp(res, "mt", "Transcription");
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: unknown } }[];
+  };
+  const out = messageText(data.choices?.[0]?.message?.content);
+  if (out === "EN" || out.startsWith("EN\n") || out.startsWith("EN ")) {
+    return { text: trimmed, english: true };
+  }
+  const script = out.startsWith("HI:") ? out.slice(3).trim() : "";
+  if (script && hasDevanagari(script) && !hasLatin(script)) {
+    return { text: script, english: false };
+  }
+  return { text: trimmed, english: false };
+}
+
 export async function transcribeAudio(
   buffer: Buffer,
   filename: string,

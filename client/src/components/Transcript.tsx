@@ -55,7 +55,13 @@ function Line({
     : mine
       ? item.sourceText
       : (item.translatedText ?? item.sourceText);
-  const original = missed ? null : mine ? item.translatedText : item.sourceText;
+  const original = missed
+    ? null
+    : mine
+      ? item.kind === "chat"
+        ? null
+        : item.translatedText
+      : item.sourceText;
   return (
     <li className={mine ? "sm:ml-10" : "sm:mr-10"}>
       <p className="text-xs uppercase tracking-[0.14em] text-ink/40">
