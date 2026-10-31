@@ -80,7 +80,28 @@ export function attachSockets(io: IO): void {
       }
       bindSocket(socket, room, result);
       if (!existing) preferRoomMode(io, room, result, mode);
+      announceArrival(socket, room, result);
       broadcastState(io, room);
+    });
+
+    socket.on("room:leave", () => {
+      const ctx = context(socket);
+      if (!ctx) return;
+      const { room, seat } = ctx;
+      if (seat.disconnectTimer) {
+        clearTimeout(seat.disconnectTimer);
+        seat.disconnectTimer = null;
+      }
+      dropFloorFor(io, room);
+      const leftId = seat.clientId;
+      socket.leave(room.code);
+      socket.data.roomCode = null;
+      socket.data.clientId = null;
+      removeSeat(room, leftId);
+      const still = getRoom(room.code);
+      if (!still) return;
+      io.to(still.code).emit("peer:left", { id: leftId });
+      broadcastState(io, still);
     });
 
     socket.on("self:update", (payload) => {
@@ -272,8 +293,11 @@ export function attachSockets(io: IO): void {
       broadcastState(io, room);
       seat.disconnectTimer = setTimeout(() => {
         if (seat.socketId) return;
-        removeSeat(room, seat.clientId);
-        if (getRoom(room.code)) broadcastState(io, room);
+        const leftId = seat.clientId;
+        removeSeat(room, leftId);
+        if (!getRoom(room.code)) return;
+        io.to(room.code).emit("peer:left", { id: leftId });
+        broadcastState(io, room);
       }, GRACE_MS);
     });
   });
@@ -322,7 +346,20 @@ function seatJoin(
     return;
   }
   bindSocket(socket, room, result);
+  announceArrival(socket, room, result);
   broadcastState(io, room);
+}
+
+function announceArrival(socket: Sock, room: Room, seat: Seat): void {
+  if (!room.other(seat.clientId)) return;
+  socket.to(room.code).emit("peer:joined", {
+    id: seat.clientId,
+    name: seat.name,
+    language: seat.language,
+    typing: seat.typing,
+    micEnabled: seat.micEnabled,
+    speaking: seat.speaking,
+  });
 }
 
 function bindSocket(socket: Sock, room: Room, seat: Seat): void {

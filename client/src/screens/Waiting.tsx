@@ -6,10 +6,12 @@ export function Waiting({
   state,
   onCopy,
   onLanguage,
+  onLeave,
 }: {
   state: RoomState;
   onCopy: () => void;
   onLanguage: (language: Language) => void;
+  onLeave: () => void;
 }) {
   const self = selfOf(state);
   const lang = LANGUAGES.find((l) => l.id === self?.language);
@@ -44,6 +46,13 @@ export function Waiting({
         onClick={onCopy}
       >
         Copy link
+      </button>
+      <button
+        type="button"
+        className="mx-auto mt-6 text-sm text-ink/45 hover:text-ink"
+        onClick={onLeave}
+      >
+        Leave table
       </button>
     </main>
   );

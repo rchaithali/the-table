@@ -9,6 +9,7 @@ import { peerOf, selfOf } from "../state/roomStore";
 
 export function TableView({
   state,
+  presence,
   onSend,
   onTyping,
   onPropose,
@@ -16,9 +17,11 @@ export function TableView({
   onMic,
   onLanguage,
   onError,
+  onLeave,
   captureReady,
 }: {
   state: RoomState;
+  presence: string | null;
   onSend: (text: string) => void;
   onTyping: (typing: boolean) => void;
   onPropose: (mode: "chat" | "talk") => void;
@@ -26,6 +29,7 @@ export function TableView({
   onMic: () => void;
   onLanguage: (language: Language) => void;
   onError: (message: string) => void;
+  onLeave: () => void;
   captureReady: boolean;
 }) {
   const self = selfOf(state);
@@ -39,11 +43,20 @@ export function TableView({
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 py-6 sm:px-8">
-      <header className="flex items-center justify-between gap-3">
-        <p className="font-display text-lg">The Table · {state.code}</p>
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-display text-lg">The Table · {state.code}</p>
+          <button
+            type="button"
+            className="mt-1 text-sm text-ink/45 hover:text-ink"
+            onClick={onLeave}
+          >
+            Leave table
+          </button>
+        </div>
         <button
           type="button"
-          className="text-sm text-ink/60 underline-offset-2 hover:underline"
+          className="shrink-0 text-sm text-ink/60 underline-offset-2 hover:underline"
           onClick={() => onPropose(talk ? "chat" : "talk")}
         >
           {talk ? "Back to Chat" : "Move to Talk"}
@@ -52,6 +65,11 @@ export function TableView({
 
       <div className="mt-6 flex flex-1 flex-col">
         <Seat person={peer} side="far" />
+        {presence ? (
+          <p className="mt-2 text-center text-sm text-ink/55" role="status">
+            {presence}
+          </p>
+        ) : null}
         <Floor mode={state.mode} phase={state.phase} label={floorLabel} />
         <Seat person={self} side="near" you onLanguage={onLanguage} />
 

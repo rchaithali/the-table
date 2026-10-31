@@ -32,6 +32,9 @@ export function App() {
   const playbackGen = useRef(0);
   const modeRef = useRef<Mode>("chat");
   const roomCodeRef = useRef<string | null>(null);
+  const aside = useRef(false);
+  const awayId = useRef<string | null>(null);
+  const [presence, setPresence] = useState<string | null>(null);
   const [rejoining, setRejoining] = useState(() => Boolean(rememberedRoom()));
   stateRef.current = state;
 
@@ -43,6 +46,7 @@ export function App() {
       setConn("live");
       const code = rememberedRoom();
       if (code) {
+        aside.current = false;
         const profile = rememberedProfile();
         socket.emit("room:join", {
           code,
@@ -59,11 +63,22 @@ export function App() {
     socket.on("disconnect", onDisconnect);
     socket.on("connect_error", onDisconnect);
     socket.on("room:state", (next) => {
+      if (aside.current) return;
       if (roomCodeRef.current !== next.code) {
         roomCodeRef.current = next.code;
         playbackGen.current = next.floorGen;
+        awayId.current = null;
+        setPresence(null);
       } else {
         playbackGen.current = Math.max(playbackGen.current, next.floorGen);
+      }
+      if (next.absent) {
+        awayId.current = next.absent.id;
+        setPresence(`${next.absent.name} has left the table.`);
+      } else if (awayId.current) {
+        const returned = next.participants.find((p) => p.id === awayId.current);
+        awayId.current = null;
+        if (returned) setPresence(`${returned.name} is back at the table.`);
       }
       modeRef.current = next.mode;
       setRejoining(false);
@@ -183,6 +198,18 @@ export function App() {
       talk.setRemotePlaying(null);
     });
     socket.on("talk:error", (payload) => setError(payload.message));
+    socket.on("peer:left", ({ id }) => {
+      if (aside.current) return;
+      const person = stateRef.current?.participants.find((p) => p.id === id);
+      if (!person || awayId.current === id) return;
+      awayId.current = id;
+      setPresence(`${person.name} has left the table.`);
+    });
+    socket.on("peer:joined", (person) => {
+      if (aside.current || awayId.current !== person.id) return;
+      awayId.current = null;
+      setPresence(`${person.name} is back at the table.`);
+    });
 
     if (socket.connected) onConnect();
     return () => {
@@ -203,10 +230,36 @@ export function App() {
       socket.off("talk:play");
       socket.off("talk:interrupted");
       socket.off("talk:error");
+      socket.off("peer:left");
+      socket.off("peer:joined");
     };
   }, []);
 
-  const waiting = state && !peerOf(state);
+  const waiting = state && !peerOf(state) && !presence;
+
+  function beginSeat() {
+    aside.current = false;
+  }
+
+  function leaveTable() {
+    aside.current = true;
+    awayId.current = null;
+    setPresence(null);
+    talkRef.current?.disable();
+    cancelSpeech();
+    socket.emit("room:leave");
+    clearRoom();
+    roomCodeRef.current = null;
+    playbackGen.current = 0;
+    modeRef.current = "chat";
+    setDeclineNote(null);
+    setVoiceWarn(null);
+    setError(null);
+    setState(null);
+    const url = new URL(window.location.href);
+    url.search = "";
+    window.history.replaceState({}, "", `${url.pathname}${url.hash}`);
+  }
 
   async function toggleMic() {
     const talk = talkRef.current;
@@ -239,7 +292,12 @@ export function App() {
   return (
     <div className="min-h-dvh bg-paper text-ink">
       {!state ? (
-        <Landing connection={conn} error={error} suspended={rejoining} />
+        <Landing
+          connection={conn}
+          error={error}
+          suspended={rejoining}
+          onArrive={beginSeat}
+        />
       ) : waiting ? (
         <Waiting
           state={state}
@@ -254,6 +312,7 @@ export function App() {
               () => setError("Could not copy the link. Copy the code instead."),
             );
           }}
+          onLeave={leaveTable}
         />
       ) : (
         <TableView
@@ -274,6 +333,8 @@ export function App() {
           onMic={() => void toggleMic()}
           onLanguage={setLanguage}
           onError={setError}
+          onLeave={leaveTable}
+          presence={presence}
         />
       )}
       {copied ? (

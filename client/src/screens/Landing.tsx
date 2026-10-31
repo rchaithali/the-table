@@ -13,10 +13,12 @@ export function Landing({
   connection,
   error,
   suspended = false,
+  onArrive,
 }: {
   connection: Conn;
   error: string | null;
   suspended?: boolean;
+  onArrive?: () => void;
 }) {
   const preset = useMemo(() => rememberedProfile(), []);
   const [name, setName] = useState(preset.name);
@@ -39,6 +41,7 @@ export function Landing({
   }
 
   function create() {
+    onArrive?.();
     persist();
     socket.emit("room:create", {
       clientId: getClientId(),
@@ -49,6 +52,7 @@ export function Landing({
   }
 
   function join() {
+    onArrive?.();
     persist();
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) return;

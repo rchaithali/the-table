@@ -39,6 +39,7 @@ export class Room {
   readonly code: string;
   mode: Mode = "chat";
   modeProposal: ModeProposal | null = null;
+  absent: { id: string; name: string } | null = null;
   floorHolderId: string | null = null;
   phase: FloorPhase = "idle";
   floorGen = 0;
@@ -77,6 +78,7 @@ export class Room {
       code: this.code,
       mode: this.mode,
       modeProposal: this.modeProposal,
+      absent: this.absent,
       floorHolderId: this.floorHolderId,
       phase: this.phase,
       floorGen: this.floorGen,
@@ -136,6 +138,7 @@ export function addOrReconnect(
     existing.socketId = input.socketId;
     existing.name = input.name.trim() || existing.name;
     existing.language = input.language;
+    if (room.absent?.id === existing.clientId) room.absent = null;
     return existing;
   }
   if (room.seats.length >= 2) return "full";
@@ -150,6 +153,7 @@ export function addOrReconnect(
     disconnectTimer: null,
   };
   room.seats.push(seat);
+  if (room.absent?.id === seat.clientId) room.absent = null;
   return seat;
 }
 
@@ -164,6 +168,8 @@ export function markDisconnected(room: Room, socketId: string): Seat | undefined
 }
 
 export function removeSeat(room: Room, clientId: string): void {
+  const seat = room.seats.find((s) => s.clientId === clientId);
+  if (seat) room.absent = { id: seat.clientId, name: seat.name };
   if (room.activeJob) room.activeJob.stale = true;
   room.seats = room.seats.filter((s) => s.clientId !== clientId);
   room.modeProposal = null;

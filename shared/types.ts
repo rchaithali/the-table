@@ -35,6 +35,7 @@ export interface RoomState {
   code: string;
   mode: Mode;
   modeProposal: ModeProposal | null;
+  absent: { id: string; name: string } | null;
   floorHolderId: string | null;
   phase: FloorPhase;
   floorGen: number;
@@ -122,6 +123,7 @@ export interface ClientToServerEvents {
   }) => void;
   "mode:propose": (payload: { mode: Mode }) => void;
   "mode:respond": (payload: { accept: boolean }) => void;
+  "room:leave": () => void;
   "talk:mic": (payload: { enabled: boolean }) => void;
   "talk:activity": (payload: { speaking: boolean }) => void;
   "talk:barge_begin": (payload: { jobId: string }) => void;

@@ -17,9 +17,17 @@ export function ChatComposer({
   const abort = useRef<AbortController | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detach = useRef<(() => void) | null>(null);
+  const mounted = useRef(true);
 
   useEffect(() => {
-    return () => detach.current?.();
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      abort.current?.abort();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      detach.current?.();
+    };
   }, []);
 
   async function toggleDictate() {
@@ -32,9 +40,14 @@ export function ChatComposer({
     abort.current = ac;
     try {
       const stream = await requestMicrophone();
+      if (!mounted.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       const { blob, mime } = await recordUntilStop(stream, ac.signal);
       stopStream();
+      if (!mounted.current) return;
       setDictating(false);
       if (blob.size < 800) return;
       setBusy(true);
