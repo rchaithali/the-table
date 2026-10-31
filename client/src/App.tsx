@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Language, Mode, RoomState } from "@shared/types";
+import { mergeTranscript, nextPresence } from "@shared/roomSync";
 import { TalkSession } from "./audio/talkSession";
 import { cancelSpeech, ensureVoices, primeSpeech, speak } from "./audio/tts";
 import { Landing } from "./screens/Landing";
@@ -72,17 +73,18 @@ export function App() {
       } else {
         playbackGen.current = Math.max(playbackGen.current, next.floorGen);
       }
-      if (next.absent) {
-        awayId.current = next.absent.id;
-        setPresence(`${next.absent.name} has left the table.`);
-      } else if (awayId.current) {
-        const returned = next.participants.find((p) => p.id === awayId.current);
-        awayId.current = null;
-        if (returned) setPresence(`${returned.name} is back at the table.`);
-      }
+      const presenceUpdate = nextPresence(awayId.current, next);
+      awayId.current = presenceUpdate.awayId;
+      if (presenceUpdate.notice !== "keep") setPresence(presenceUpdate.notice);
       modeRef.current = next.mode;
       setRejoining(false);
-      setState(next);
+      setState((cur) => {
+        const sameRoom = cur?.code === next.code;
+        return {
+          ...next,
+          transcript: mergeTranscript(sameRoom ? cur.transcript : [], next.transcript),
+        };
+      });
       setError(null);
       rememberRoom(next.code);
       const url = new URL(window.location.href);
@@ -206,7 +208,7 @@ export function App() {
       setPresence(`${person.name} has left the table.`);
     });
     socket.on("peer:joined", (person) => {
-      if (aside.current || awayId.current !== person.id) return;
+      if (aside.current || !awayId.current) return;
       awayId.current = null;
       setPresence(`${person.name} is back at the table.`);
     });
@@ -235,7 +237,7 @@ export function App() {
     };
   }, []);
 
-  const waiting = state && !peerOf(state) && !presence;
+  const waiting = Boolean(state && !peerOf(state) && !presence && state.transcript.length === 0);
 
   function beginSeat() {
     aside.current = false;

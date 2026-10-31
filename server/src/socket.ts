@@ -22,7 +22,10 @@ import { dropFloorFor, enqueueOrRun, handleBargeBegin, onPlayEnded } from "./tal
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type Sock = Socket<ClientToServerEvents, ServerToClientEvents>;
 
-const GRACE_MS = 8000;
+const GRACE_MS = (() => {
+  const parsed = Number(process.env.THE_TABLE_GRACE_MS);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 8000;
+})();
 
 function extFor(mime: string): string {
   if (mime.includes("wav")) return "wav";

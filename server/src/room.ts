@@ -138,7 +138,7 @@ export function addOrReconnect(
     existing.socketId = input.socketId;
     existing.name = input.name.trim() || existing.name;
     existing.language = input.language;
-    if (room.absent?.id === existing.clientId) room.absent = null;
+    if (room.liveCount() >= 2 || room.absent?.id === existing.clientId) room.absent = null;
     return existing;
   }
   if (room.seats.length >= 2) return "full";
@@ -153,7 +153,7 @@ export function addOrReconnect(
     disconnectTimer: null,
   };
   room.seats.push(seat);
-  if (room.absent?.id === seat.clientId) room.absent = null;
+  if (room.liveCount() >= 2) room.absent = null;
   return seat;
 }
 
