@@ -190,7 +190,14 @@ export function attachSockets(io: IO): void {
       if (!ctx || !ctx.room.modeProposal) return;
       if (ctx.room.modeProposal.fromId === ctx.seat.clientId) return;
       if (!accept) {
+        const proposer = ctx.room.seatByClient(ctx.room.modeProposal.fromId);
         ctx.room.modeProposal = null;
+        if (proposer?.socketId) {
+          io.to(proposer.socketId).emit("mode:declined", {
+            name: ctx.seat.name,
+            mode: ctx.room.mode,
+          });
+        }
         broadcastState(io, ctx.room);
         return;
       }

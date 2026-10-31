@@ -69,6 +69,7 @@ export interface ServerToClientEvents {
   "chat:transcribed": (payload: { requestId: string; text: string }) => void;
   "mode:proposed": (payload: ModeProposal) => void;
   "mode:changed": (payload: { mode: Mode }) => void;
+  "mode:declined": (payload: { name: string; mode: Mode }) => void;
   "floor:update": (payload: {
     floorHolderId: string | null;
     phase: FloorPhase;

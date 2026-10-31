@@ -81,8 +81,8 @@ export function Landing({
         </h1>
         <p className="mt-6 max-w-lg text-lg leading-relaxed text-ink/75">
           Sit across from someone you do not share a language with. Type, or
-          talk. Each of you reads and hears in your own tongue — including when
-          you cut each other off.
+          talk. Each of you reads and hears in your own language, even when the
+          conversation gets messy.
         </p>
 
         {error ? (

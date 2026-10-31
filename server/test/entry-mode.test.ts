@@ -12,7 +12,7 @@ type AnyEvent = Record<string, unknown>;
 function connect(name: string, url: string) {
   const socket: Socket = io(url, { transports: ["websocket"], forceNew: true });
   const buckets = new Map<string, { items: AnyEvent[]; waiters: Array<(value: AnyEvent) => void> }>();
-  for (const event of ["room:created", "room:state", "room:error", "mode:proposed", "mode:changed", "item:updated"]) {
+  for (const event of ["room:created", "room:state", "room:error", "mode:proposed", "mode:changed", "mode:declined", "item:updated"]) {
     const slot = { items: [] as AnyEvent[], waiters: [] as Array<(value: AnyEvent) => void> };
     buckets.set(event, slot);
     socket.on(event, (payload: AnyEvent) => {
@@ -129,12 +129,17 @@ test("a chosen entry mode is shared, and a different choice asks instead of spli
 
     c.socket.emit("mode:propose", { mode: "chat" });
     await d.next("mode:proposed");
+    const declined = c.next<{ name: string; mode: string }>("mode:declined");
     d.socket.emit("mode:respond", { accept: false });
+    const notice = await declined;
+    assert.equal(notice.name, "Ravi");
+    assert.equal(notice.mode, "talk");
     const stayed = await c.until<RoomState>(
       "room:state",
       (state) => state.mode === "talk" && state.modeProposal === null,
     );
     assert.equal(stayed.transcript.length >= 1, true);
+    assert.equal(stayed.mode, "talk");
     c.socket.close();
     d.socket.close();
   } finally {

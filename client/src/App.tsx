@@ -24,7 +24,9 @@ export function App() {
   const [state, setState] = useState<RoomState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [declineNote, setDeclineNote] = useState<string | null>(null);
   const [voiceWarn, setVoiceWarn] = useState<string | null>(null);
+  const declineTimer = useRef<number | null>(null);
   const talkRef = useRef<TalkSession | null>(null);
   const stateRef = useRef<RoomState | null>(null);
   const playbackGen = useRef(0);
@@ -115,6 +117,13 @@ export function App() {
         cancelSpeech();
       }
     });
+    const onDeclined = ({ name, mode }: { name: string; mode: Mode }) => {
+      const staying = mode === "talk" ? "Talk" : "Chat";
+      setDeclineNote(`${name} prefers to stay in ${staying} for now.`);
+      if (declineTimer.current) window.clearTimeout(declineTimer.current);
+      declineTimer.current = window.setTimeout(() => setDeclineNote(null), 5000);
+    };
+    socket.on("mode:declined", onDeclined);
     socket.on("chat:typing", ({ id, typing }) => {
       setState((cur) =>
         cur
@@ -187,6 +196,8 @@ export function App() {
       socket.off("chat:message");
       socket.off("item:updated");
       socket.off("mode:changed");
+      socket.off("mode:declined", onDeclined);
+      if (declineTimer.current) window.clearTimeout(declineTimer.current);
       socket.off("chat:typing");
       socket.off("floor:update");
       socket.off("talk:play");
@@ -268,6 +279,14 @@ export function App() {
       {copied ? (
         <p className="fixed bottom-4 left-1/2 -translate-x-1/2 text-sm text-cool">
           Link copied
+        </p>
+      ) : null}
+      {declineNote ? (
+        <p
+          role="status"
+          className="fixed bottom-24 left-1/2 z-10 max-w-sm -translate-x-1/2 rounded-sm border border-ink/15 bg-paper px-3 py-2 text-center text-sm text-ink/80"
+        >
+          {declineNote}
         </p>
       ) : null}
       {state && conn !== "live" ? (
