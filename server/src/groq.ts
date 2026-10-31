@@ -37,6 +37,35 @@ function messageText(content: unknown): string {
     .trim();
 }
 
+async function callGroq(
+  url: string,
+  init: RequestInit,
+  kind: "mt" | "stt",
+  label: string,
+): Promise<Response> {
+  const request = fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timed = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(Object.assign(new Error(`${label} took too long. Try again.`), { code: kind, name: "TimeoutError" }));
+    }, 30_000);
+  });
+  request.catch(() => {});
+  timed.catch(() => {});
+  try {
+    return await Promise.race([request, timed]);
+  } catch (err) {
+    const name = err instanceof Error ? err.name : "";
+    const timedOut = name === "TimeoutError" || name === "AbortError";
+    throw Object.assign(
+      new Error(timedOut ? `${label} took too long. Try again.` : `${label} could not reach Groq. Try again.`),
+      { code: kind },
+    );
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function failHttp(
   res: Response,
   kind: "mt" | "stt",
@@ -96,14 +125,19 @@ export async function translateText(
     payload.reasoning_format = "hidden";
   }
 
-  const res = await fetch(CHAT_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey()}`,
-      "Content-Type": "application/json",
+  const res = await callGroq(
+    CHAT_URL,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
+    "mt",
+    "Translation",
+  );
 
   if (!res.ok) await failHttp(res, "mt", "Translation");
 
@@ -138,11 +172,12 @@ export async function transcribeAudio(
   form.append("temperature", "0");
   form.append("prompt", language === "hi" ? "हिंदी बातचीत।" : "English conversation.");
 
-  const res = await fetch(TRANSCRIBE_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey()}` },
-    body: form,
-  });
+  const res = await callGroq(
+    TRANSCRIBE_URL,
+    { method: "POST", headers: { Authorization: `Bearer ${apiKey()}` }, body: form },
+    "stt",
+    "Transcription",
+  );
 
   if (!res.ok) await failHttp(res, "stt", "Transcription");
 

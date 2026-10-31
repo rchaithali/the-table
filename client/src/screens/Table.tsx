@@ -35,7 +35,7 @@ export function TableView({
     ? floorCopy(state, captureReady)
     : peer?.typing
       ? `${peer.name} is writing`
-      : "Say the thing you mean.";
+      : "";
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 py-6 sm:px-8">

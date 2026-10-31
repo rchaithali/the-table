@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import type {
   ClientToServerEvents,
   Language,
+  Mode,
   ServerToClientEvents,
 } from "./types.ts";
 import {
@@ -15,7 +16,7 @@ import {
   type Seat,
 } from "./room.ts";
 import { groqCode, transcribeAudio, translateText } from "./groq.ts";
-import { isSpokenText } from "./speech.ts";
+import { isSpokenText, wavLooksSilent } from "./speech.ts";
 import { dropFloorFor, enqueueOrRun, handleBargeBegin, onPlayEnded } from "./talk.ts";
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -44,8 +45,8 @@ export function attachSockets(io: IO): void {
     socket.data.roomCode = null as string | null;
     socket.data.clientId = null as string | null;
 
-    socket.on("room:create", ({ name, language, clientId }) => {
-      const room = createRoom();
+    socket.on("room:create", ({ name, language, clientId, mode }) => {
+      const room = createRoom(mode === "talk" ? "talk" : "chat");
       seatJoin(io, socket, room, {
         clientId,
         name,
@@ -54,7 +55,7 @@ export function attachSockets(io: IO): void {
       socket.emit("room:created", { code: room.code });
     });
 
-    socket.on("room:join", ({ code, clientId, name, language }) => {
+    socket.on("room:join", ({ code, clientId, name, language, mode }) => {
       const room = getRoom(code);
       if (!room) {
         socket.emit("room:error", {
@@ -63,6 +64,7 @@ export function attachSockets(io: IO): void {
         });
         return;
       }
+      const existing = room.seatByClient(clientId);
       const result = addOrReconnect(room, {
         clientId,
         socketId: socket.id,
@@ -77,6 +79,7 @@ export function attachSockets(io: IO): void {
         return;
       }
       bindSocket(socket, room, result);
+      if (!existing) preferRoomMode(io, room, result, mode);
       broadcastState(io, room);
     });
 
@@ -137,9 +140,17 @@ export function attachSockets(io: IO): void {
     socket.on("chat:transcribe", async ({ requestId, mime, audio }) => {
       const ctx = context(socket);
       if (!ctx) return;
+      const audioBytes = bufferFrom(audio);
+      if (!audioBytes.length || wavLooksSilent(audioBytes)) {
+        socket.emit("room:error", {
+          code: "empty",
+          message: "We didn’t catch that. Try dictating again.",
+        });
+        return;
+      }
       try {
         const text = await transcribeAudio(
-          bufferFrom(audio),
+          audioBytes,
           `dictate.${extFor(mime)}`,
           ctx.seat.language,
         );
@@ -259,6 +270,18 @@ export function attachSockets(io: IO): void {
       }, GRACE_MS);
     });
   });
+}
+
+function preferRoomMode(io: IO, room: Room, seat: Seat, mode: Mode | undefined): void {
+  if (mode !== "chat" && mode !== "talk") return;
+  if (mode === room.mode || room.modeProposal) return;
+  const other = room.other(seat.clientId);
+  if (!other) {
+    room.mode = mode;
+    return;
+  }
+  room.modeProposal = { fromId: seat.clientId, mode };
+  io.to(room.code).emit("mode:proposed", room.modeProposal);
 }
 
 function opposite(language: Language): Language {

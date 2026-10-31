@@ -92,11 +92,13 @@ export function enqueueOrRun(
 
   const active = room.activeJob;
   if (!active || active.stale) {
+    console.error("talk start", queued.job.id, "phase", room.phase);
     void runUtterance(io, room, queued);
     return;
   }
 
   if (active.authorId !== seat.clientId) {
+    console.error("talk barge", queued.job.id, "over", active.id);
     handleBargeBegin(io, room, seat);
     void runUtterance(io, room, queued);
     return;
@@ -104,6 +106,7 @@ export function enqueueOrRun(
 
   if (room.queued.length >= MAX_QUEUE) room.queued.shift();
   room.queued.push(queued);
+  console.error("talk queued", queued.job.id, "behind", active.id, "n", room.queued.length);
 }
 
 export function dropFloorFor(io: IO, room: Room): void {
@@ -177,6 +180,7 @@ async function runUtterance(io: IO, room: Room, queued: QueuedUtterance): Promis
   io.to(room.code).emit("chat:message", item);
 
   try {
+    console.error("talk transcribe", queued.job.id);
     if (wavLooksSilent(queued.buf)) {
       item.sourceText = "";
       item.status = "failed";
@@ -222,6 +226,7 @@ async function runUtterance(io: IO, room: Room, queued: QueuedUtterance): Promis
       onPlayEnded(io, room, queued.job.id);
       return;
     }
+    console.error("talk play", queued.job.id, "to", listenerNow.clientId);
     io.to(listenerNow.socketId).emit("talk:play", {
       jobId: queued.job.id,
       text: translated,

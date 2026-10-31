@@ -23,7 +23,7 @@ export function Floor({
           {mode === "talk" ? talkWord(phase) : "Chat"}
         </span>
       </div>
-      <p className="max-w-xs text-center text-sm text-ink/60">{label}</p>
+      {label ? <p className="max-w-xs text-center text-sm text-ink/60">{label}</p> : null}
     </div>
   );
 }

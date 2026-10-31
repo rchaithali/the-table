@@ -321,6 +321,23 @@ test("two people chat, switch modes, and an interruption drops stale speech", { 
     b.socket.emit("mode:respond", { accept: true });
     const chatting = await a.until<RoomState>("room:state", (state) => state.mode === "chat");
     assert.equal(chatting.modeProposal, null);
+
+    const silence = Buffer.alloc(44 + 16000 * 2);
+    silence.write("RIFF", 0);
+    silence.writeUInt32LE(36 + 16000 * 2, 4);
+    silence.write("WAVEfmt ", 8);
+    silence.writeUInt32LE(16, 16);
+    silence.writeUInt16LE(1, 20);
+    silence.writeUInt16LE(1, 22);
+    silence.writeUInt32LE(16000, 24);
+    silence.writeUInt32LE(32000, 28);
+    silence.writeUInt16LE(2, 32);
+    silence.writeUInt16LE(16, 34);
+    silence.write("data", 36);
+    silence.writeUInt32LE(16000 * 2, 40);
+    a.arm("room:error");
+    a.socket.emit("chat:transcribe", { requestId: "quiet", mime: "audio/wav", audio: silence });
+    assert.equal((await a.next<{ code: string }>("room:error")).code, "empty");
   } finally {
     a.socket.close();
     b.socket.close();

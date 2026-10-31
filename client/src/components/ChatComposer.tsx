@@ -111,15 +111,17 @@ export function ChatComposer({
       <div className="flex items-end gap-2">
       <button
         type="button"
-        className={`h-11 w-11 shrink-0 rounded-full border ${
-          dictating ? "border-cut bg-cut text-paper" : "border-ink/20"
+        className={`grid h-11 w-11 shrink-0 place-items-center rounded-full border ${
+          dictating ? "border-cut bg-cut text-paper" : "border-ink/20 text-ink"
         }`}
         aria-pressed={dictating}
-        aria-label={dictating ? "Stop dictation" : "Dictate"}
+        aria-busy={busy}
+        aria-label={busy ? "Transcribing" : dictating ? "Stop recording" : "Start recording"}
+        title={busy ? "Transcribing" : dictating ? "Stop recording" : "Start recording"}
         onClick={() => void toggleDictate()}
         disabled={busy || disabled}
       >
-        {busy ? "…" : dictating ? "■" : "mic"}
+        {busy ? <TranscribingMark /> : <MicIcon recording={dictating} />}
       </button>
       <textarea
         className="min-h-11 flex-1 resize-none rounded-sm border border-ink/15 bg-paper px-3 py-2 font-ui outline-none focus:border-ink/40"
@@ -144,5 +146,26 @@ export function ChatComposer({
       </button>
       </div>
     </form>
+  );
+}
+
+function MicIcon({ recording }: { recording: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path
+        fill="currentColor"
+        d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-7-3a1 1 0 1 0-2 0 9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12a1 1 0 1 0-2 0 7 7 0 0 1-14 0z"
+      />
+      {recording ? <circle cx="19" cy="5" r="2.2" fill="currentColor" /> : null}
+    </svg>
+  );
+}
+
+function TranscribingMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 animate-spin">
+      <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+      <path d="M12 5a7 7 0 0 1 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }

@@ -101,10 +101,11 @@ function toParticipant(s: Seat): Participant {
 
 const rooms = new Map<string, Room>();
 
-export function createRoom(): Room {
+export function createRoom(mode?: Mode): Room {
   let code = roomCode();
   while (rooms.has(code)) code = roomCode();
   const room = new Room(code);
+  if (mode === "talk") room.mode = "talk";
   rooms.set(code, room);
   return room;
 }

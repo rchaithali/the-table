@@ -48,3 +48,24 @@ test("translation request hides gpt-oss reasoning and keeps only the answer", as
     globalThis.fetch = original;
   }
 });
+
+test("a stalled Groq request becomes a retryable timeout", async () => {
+  process.env.GROQ_API_KEY = "test-key";
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+  };
+  try {
+    await assert.rejects(
+      () => translateText("hello", "en", "hi"),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /took too long/);
+        assert.equal((err as { code?: string }).code, "mt");
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});

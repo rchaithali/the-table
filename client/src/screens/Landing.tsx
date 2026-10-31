@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { LANGUAGES, type Language } from "@shared/types";
+import { LANGUAGES, type Language, type Mode } from "@shared/types";
 import { getClientId } from "../state/session";
 import {
   rememberProfile,
@@ -21,6 +21,7 @@ export function Landing({
   const preset = useMemo(() => rememberedProfile(), []);
   const [name, setName] = useState(preset.name);
   const [language, setLanguage] = useState<Language>(preset.language);
+  const [mode, setMode] = useState<Mode>("chat");
   const [code, setCode] = useState(
     () => new URLSearchParams(window.location.search).get("room") ?? "",
   );
@@ -43,6 +44,7 @@ export function Landing({
       clientId: getClientId(),
       name: name.trim() || "You",
       language,
+      mode,
     });
   }
 
@@ -55,6 +57,7 @@ export function Landing({
       clientId: getClientId(),
       name: name.trim() || "You",
       language,
+      mode,
     });
   }
 
@@ -88,7 +91,31 @@ export function Landing({
           </p>
         ) : null}
 
-        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+        <div className="mt-8" role="radiogroup" aria-label="Chat or Talk">
+          <div className="flex gap-4">
+            {(["chat", "talk"] as const).map((choice) => {
+              const selected = mode === choice;
+              return (
+                <button
+                  key={choice}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setMode(choice)}
+                  className={`grid h-20 w-20 place-items-center rounded-full border font-display text-sm tracking-wide sm:h-24 sm:w-24 ${
+                    selected
+                      ? "border-ink bg-ink text-paper"
+                      : "border-ink/20 bg-paper text-ink"
+                  }`}
+                >
+                  {choice === "chat" ? "Chat" : "Talk"}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm">
             What should they call you
             <input

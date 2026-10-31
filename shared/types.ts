@@ -102,12 +102,14 @@ export interface ClientToServerEvents {
     name: string;
     language: Language;
     clientId: string;
+    mode?: Mode;
   }) => void;
   "room:join": (payload: {
     code: string;
     clientId: string;
     name: string;
     language: Language;
+    mode?: Mode;
   }) => void;
   "self:update": (payload: { name?: string; language?: Language }) => void;
   "chat:send": (payload: { clientMsgId: string; text: string }) => void;
