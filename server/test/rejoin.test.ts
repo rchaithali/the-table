@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { io, type Socket } from "socket.io-client";
 import type { RoomState, TranscriptItem } from "../../shared/types.ts";
-import { mergeTranscript, nextPresence, seatedProposal } from "../../shared/roomSync.ts";
+import { mergeTranscript, nextPresence, seatedProposal, upsertTranscript } from "../../shared/roomSync.ts";
 
 process.env.THE_TABLE_TEST = "1";
 process.env.THE_TABLE_GRACE_MS = "500";
@@ -300,4 +300,7 @@ test("a full table clears a departure, and an empty one keeps it", () => {
     seatedProposal({ fromId: "ravi", mode: "chat" }, [{ id: "asha" }, { id: "ravi" }]),
     { fromId: "ravi", mode: "chat" },
   );
+  assert.deepEqual(ids(upsertTranscript([older], extra)), ["a", "b"]);
+  assert.equal(upsertTranscript([older], newer)[0]?.translatedText, "मैं असहमत हूँ।");
+  assert.equal(upsertTranscript(undefined, older).length, 1);
 });

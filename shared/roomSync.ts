@@ -1,5 +1,18 @@
 import type { ModeProposal, RoomState, TranscriptItem } from "./types.ts";
 
+/** Insert or replace one line without dropping the others. */
+export function upsertTranscript(
+  lines: TranscriptItem[] | undefined,
+  item: TranscriptItem,
+): TranscriptItem[] {
+  const list = Array.isArray(lines) ? lines : [];
+  const index = list.findIndex((entry) => entry?.id === item.id);
+  if (index < 0) return [...list, item];
+  const next = list.slice();
+  next[index] = item;
+  return next;
+}
+
 /**
  * Server order wins for ids the server still has.
  * An empty snapshot does not erase lines the page already has.

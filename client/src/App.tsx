@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Language, Mode, RoomState } from "@shared/types";
-import { mergeTranscript, nextPresence, seatedProposal } from "@shared/roomSync";
+import type { Language, Mode, RoomState, TranscriptItem } from "@shared/types";
+import { mergeTranscript, nextPresence, seatedProposal, upsertTranscript } from "@shared/roomSync";
 import { TalkSession } from "./audio/talkSession";
 import { cancelSpeech, ensureVoices, primeSpeech, speak } from "./audio/tts";
 import { Landing } from "./screens/Landing";
@@ -35,6 +35,7 @@ export function App() {
   const roomCodeRef = useRef<string | null>(null);
   const aside = useRef(false);
   const awayId = useRef<string | null>(null);
+  const pendingLines = useRef<TranscriptItem[]>([]);
   const [presence, setPresence] = useState<string | null>(null);
   const [rejoining, setRejoining] = useState(() => Boolean(rememberedRoom()));
   stateRef.current = state;
@@ -78,13 +79,16 @@ export function App() {
       if (presenceUpdate.notice !== "keep") setPresence(presenceUpdate.notice);
       modeRef.current = next.mode;
       setRejoining(false);
+      const queued = pendingLines.current;
+      pendingLines.current = [];
       setState((cur) => {
-        if (aside.current) return null;
+        if (aside.current) return cur;
         const sameRoom = cur?.code === next.code;
+        const merged = mergeTranscript(sameRoom ? cur?.transcript : [], next.transcript);
         return {
           ...next,
           modeProposal: seatedProposal(next.modeProposal, next.participants),
-          transcript: mergeTranscript(sameRoom ? cur?.transcript : [], next.transcript),
+          transcript: mergeTranscript(queued, merged),
         };
       });
       setError(null);
@@ -112,30 +116,27 @@ export function App() {
     });
     socket.on("chat:message", (item) => {
       setState((cur) => {
-        if (aside.current) return null;
-        if (!cur || cur.transcript.some((t) => t.id === item.id)) return cur;
-        return { ...cur, transcript: [...cur.transcript, item] };
+        if (aside.current) return cur;
+        if (!cur) {
+          pendingLines.current = upsertTranscript(pendingLines.current, item);
+          return cur;
+        }
+        return { ...cur, transcript: upsertTranscript(cur.transcript, item) };
       });
     });
     socket.on("item:updated", (item) => {
       setState((cur) => {
-        if (aside.current) return null;
-        if (!cur) return cur;
-        const exists = cur.transcript.some((t) => t.id === item.id);
-        return {
-          ...cur,
-          transcript: exists
-            ? cur.transcript.map((t) => (t.id === item.id ? item : t))
-            : [...cur.transcript, item],
-        };
+        if (aside.current) return cur;
+        if (!cur) {
+          pendingLines.current = upsertTranscript(pendingLines.current, item);
+          return cur;
+        }
+        return { ...cur, transcript: upsertTranscript(cur.transcript, item) };
       });
     });
     socket.on("mode:changed", ({ mode }) => {
       modeRef.current = mode;
-      setState((cur) => {
-        if (aside.current) return null;
-        return cur ? { ...cur, mode, modeProposal: null } : cur;
-      });
+      setState((cur) => (aside.current || !cur ? cur : { ...cur, mode, modeProposal: null }));
       if (mode !== "talk") {
         talk.disable();
         cancelSpeech();
@@ -150,7 +151,7 @@ export function App() {
     socket.on("mode:declined", onDeclined);
     socket.on("chat:typing", ({ id, typing }) => {
       setState((cur) => {
-        if (aside.current || !cur) return aside.current ? null : cur;
+        if (aside.current || !cur) return cur;
         return {
           ...cur,
           participants: cur.participants.map((p) =>
@@ -162,16 +163,14 @@ export function App() {
     socket.on("floor:update", (floor) => {
       playbackGen.current = Math.max(playbackGen.current, floor.floorGen);
       setState((cur) => {
-        if (aside.current) return null;
-        return cur
-          ? {
-              ...cur,
-              floorHolderId: floor.floorHolderId,
-              phase: floor.phase,
-              floorGen: floor.floorGen,
-              activeJobId: floor.jobId,
-            }
-          : cur;
+        if (aside.current || !cur) return cur;
+        return {
+          ...cur,
+          floorHolderId: floor.floorHolderId,
+          phase: floor.phase,
+          floorGen: floor.floorGen,
+          activeJobId: floor.jobId,
+        };
       });
     });
     socket.on("talk:play", (payload) => {
@@ -215,8 +214,7 @@ export function App() {
         setPresence(`${person.name} has left the table.`);
       }
       setState((cur) => {
-        if (aside.current) return null;
-        if (!cur) return cur;
+        if (aside.current || !cur) return cur;
         return {
           ...cur,
           participants: cur.participants.filter((p) => p.id !== id),

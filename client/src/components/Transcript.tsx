@@ -1,5 +1,5 @@
 import type { RoomState, TranscriptItem } from "@shared/types";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function hasWords(text: string | null): boolean {
   return Boolean(text && /\p{L}/u.test(text));
@@ -12,7 +12,12 @@ export function Transcript({
   state: RoomState;
   collapsed?: boolean;
 }) {
-  const [open, setOpen] = useState(!collapsed);
+  const [open, setOpen] = useState(() => !collapsed || state.transcript.length > 0);
+  const hadLines = useRef(state.transcript.length > 0);
+  useEffect(() => {
+    if (!hadLines.current && state.transcript.length > 0) setOpen(true);
+    hadLines.current = state.transcript.length > 0;
+  }, [state.transcript.length]);
   return (
     <section className="min-h-0 flex-1">
       {collapsed ? (
@@ -49,6 +54,11 @@ function Line({
   youId: string | null;
 }) {
   const mine = item.authorId === youId;
+  // The other person should see the translation arrive whole. The in-flight
+  // line still carries the source text, and showing that fallback flashes it.
+  if (!mine && item.status === "translating" && !hasWords(item.translatedText)) {
+    return null;
+  }
   const missed = item.status === "failed" && !hasWords(item.sourceText);
   const primary = missed
     ? "Didn’t catch that."
